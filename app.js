@@ -271,6 +271,31 @@ async function loadDeviceList() {
   if (devices.length && document.getElementById('history-tab').style.display !== 'none') loadHistory();
 }
 
+const selectedScreenshots = new Set();
+
+document.getElementById('delete-selected-btn').onclick = async () => {
+  if (selectedScreenshots.size === 0) return alert('No screenshots selected.');
+  if (!confirm(`Delete ${selectedScreenshots.size} selected screenshot(s)? This cannot be undone.`)) return;
+
+  await fetch(`${SERVER_URL}/api/screenshots/delete-many`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+    body: JSON.stringify({ ids: Array.from(selectedScreenshots) }),
+  });
+  selectedScreenshots.clear();
+  loadHistory();
+};
+
+async function deleteOneScreenshot(id) {
+  if (!confirm('Delete this screenshot? This cannot be undone.')) return;
+  await fetch(`${SERVER_URL}/api/screenshots/${id}`, {
+    method: 'DELETE',
+    headers: { 'x-api-key': API_KEY },
+  });
+  selectedScreenshots.delete(id);
+  loadHistory();
+}
+
 async function loadHistory() {
   const deviceId = document.getElementById('device-select').value;
   if (!deviceId) return;
@@ -285,8 +310,22 @@ async function loadHistory() {
       <div class="tile">
         <img src="${SERVER_URL}/api/screenshot-image/${s.id}?apiKey=${API_KEY}" loading="lazy" />
         <div class="tile-label"><span>${new Date(s.captured_at).toLocaleString()}</span></div>
+        <div class="history-tile-controls">
+          <label><input type="checkbox" class="select-shot" data-id="${s.id}" ${selectedScreenshots.has(s.id) ? 'checked' : ''}/> Select</label>
+          <button class="danger-btn del-one-btn" data-id="${s.id}" type="button">Delete</button>
+        </div>
       </div>`
     )
     .join('');
   if (shots.length === 0) gallery.innerHTML = '<p>No screenshots yet for this device.</p>';
+
+  gallery.querySelectorAll('.select-shot').forEach((cb) => {
+    cb.onchange = (e) => {
+      if (e.target.checked) selectedScreenshots.add(cb.dataset.id);
+      else selectedScreenshots.delete(cb.dataset.id);
+    };
+  });
+  gallery.querySelectorAll('.del-one-btn').forEach((btn) => {
+    btn.onclick = () => deleteOneScreenshot(btn.dataset.id);
+  });
 }

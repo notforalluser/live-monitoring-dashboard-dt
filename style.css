@@ -113,6 +113,20 @@ main { padding: 24px; }
 .dot.offline { background: #d1d5db; }
 
 .history-controls { display: flex; gap: 8px; margin-bottom: 16px; }
+.danger-btn { background: #e5484d; }
+.danger-btn:hover { background: #d1373c; }
+.history-tile-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #f8f9fb;
+  border-top: 1px solid #eef1f6;
+}
+.history-tile-controls button {
+  padding: 3px 8px;
+  font-size: 11px;
+}
 
 /* ---- Live controls: checklist + size ---- */
 .live-controls {
