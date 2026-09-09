@@ -1,0 +1,199 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  background: #f4f6f9;
+  color: #1c1f26;
+}
+
+/* ---- Password gate ---- */
+.password-screen {
+  position: fixed;
+  inset: 0;
+  background: #f4f6f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.password-box {
+  background: #fff;
+  border: 1px solid #e2e6ee;
+  border-radius: 12px;
+  padding: 32px;
+  width: 280px;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+}
+.password-box h2 { margin-top: 0; font-size: 16px; }
+.password-box input {
+  width: 100%;
+  margin-bottom: 12px;
+}
+.password-box button { width: 100%; }
+.error-text { color: #d64545; font-size: 13px; }
+
+/* ---- Header ---- */
+header {
+  padding: 16px 24px;
+  background: #fff;
+  border-bottom: 1px solid #e2e6ee;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+h1 { font-size: 18px; margin: 0; }
+.conn-status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; }
+
+input, select, button {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #d5dae3;
+  background: #fff;
+  color: #1c1f26;
+  font-size: 13px;
+}
+button {
+  background: #3b6ef0;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  color: #fff;
+}
+button:hover { background: #2f5adf; }
+
+nav#tabs { display: flex; gap: 4px; padding: 12px 24px 0; background: #f4f6f9; }
+.tab-btn {
+  background: transparent;
+  color: #6b7280;
+  border-radius: 6px 6px 0 0;
+  padding: 10px 16px;
+}
+.tab-btn.active { background: #fff; color: #1c1f26; border: 1px solid #e2e6ee; border-bottom: none; }
+
+main { padding: 24px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--tile-size, 320px), 1fr));
+  gap: 16px;
+}
+.tile {
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e6ee;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.tile video, .tile img {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: cover;
+  background: #000;
+  cursor: zoom-in;
+}
+.tile .tile-label {
+  padding: 8px 10px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #4b5563;
+  gap: 6px;
+}
+.tile .tile-label input {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.online { background: #22c55e; }
+.dot.offline { background: #d1d5db; }
+
+.history-controls { display: flex; gap: 8px; margin-bottom: 16px; }
+
+/* ---- Live controls: checklist + size ---- */
+.live-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.pill {
+  background: #eef1f6;
+  color: #6b7280;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pill.active { background: #3b6ef0; color: #fff; }
+.checklist { display: flex; gap: 8px; flex-wrap: wrap; }
+.check-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #d5dae3;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #4b5563;
+}
+.check-chip.checked { border-color: #3b6ef0; color: #1c1f26; background: #eaf0ff; }
+.size-controls { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7280; margin-left: auto; }
+.size-btn { padding: 4px 10px; background: #eef1f6; color: #4b5563; }
+.size-btn.active { background: #3b6ef0; color: #fff; }
+
+/* ---- Resizable focus view ---- */
+.focus-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.focus-modal {
+  background: #111;
+  border-radius: 10px;
+  overflow: hidden;
+  resize: both;
+  width: 70vw;
+  height: 70vh;
+  min-width: 320px;
+  min-height: 240px;
+  max-width: 95vw;
+  max-height: 95vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+}
+.focus-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: #1c1f26;
+  color: #fff;
+  font-size: 14px;
+}
+.focus-header button { margin-left: 8px; }
+.focus-modal video {
+  flex: 1;
+  width: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.resize-hint {
+  font-size: 11px;
+  color: #9ca3af;
+  text-align: right;
+  padding: 2px 8px;
+  background: #1c1f26;
+}

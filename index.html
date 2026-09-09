@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Employee Device Monitor</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
+<script src="https://unpkg.com/simple-peer@9/simplepeer.min.js"></script>
+</head>
+<body>
+
+  <!-- Password gate: basic deterrent only, not real server-side security -->
+  <div id="password-screen" class="password-screen">
+    <div class="password-box">
+      <h2>Enter Password</h2>
+      <input id="password-input" type="password" placeholder="Password" autofocus />
+      <button id="password-submit">Unlock</button>
+      <p id="password-error" class="error-text" style="display:none">Incorrect password.</p>
+    </div>
+  </div>
+
+  <div id="app" style="display:none">
+    <header>
+      <h1>Employee Device Monitor</h1>
+      <div class="conn-status">
+        <span id="conn-dot" class="dot offline"></span>
+        <span id="conn-text">Connecting...</span>
+      </div>
+    </header>
+
+    <nav id="tabs">
+      <button class="tab-btn active" data-tab="live">Live View</button>
+      <button class="tab-btn" data-tab="history">Screenshot History</button>
+    </nav>
+
+    <main id="live-tab" class="tab-panel">
+      <div class="live-controls">
+        <button id="show-all-btn" class="pill active">Show All</button>
+        <div id="device-checklist" class="checklist"></div>
+        <div class="size-controls">
+          <span>Tile size:</span>
+          <button class="size-btn" data-size="220">S</button>
+          <button class="size-btn active" data-size="320">M</button>
+          <button class="size-btn" data-size="460">L</button>
+        </div>
+      </div>
+      <div id="live-grid" class="grid"></div>
+    </main>
+
+    <main id="history-tab" class="tab-panel" style="display:none">
+      <div class="history-controls">
+        <select id="device-select"></select>
+        <button id="refresh-history">Refresh</button>
+      </div>
+      <div id="history-gallery" class="grid"></div>
+    </main>
+  </div>
+
+  <!-- Resizable focus view for one device -->
+  <div id="focus-overlay" class="focus-overlay" style="display:none">
+    <div class="focus-modal" id="focus-modal">
+      <div class="focus-header">
+        <span id="focus-label"></span>
+        <div>
+          <button id="focus-prev">&larr; Prev</button>
+          <button id="focus-next">Next &rarr;</button>
+          <button id="focus-close">Close</button>
+        </div>
+      </div>
+      <video id="focus-video" autoplay playsinline muted></video>
+      <div class="resize-hint">Drag bottom-right corner to resize</div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
