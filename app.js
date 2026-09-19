@@ -85,14 +85,34 @@ document.querySelectorAll('.size-btn').forEach((btn) => {
     document.querySelectorAll('.size-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     document.documentElement.style.setProperty('--tile-size', `${btn.dataset.size}px`);
+
+    if (btn.dataset.full === 'true') {
+      enterGridFullscreen();
+    }
   };
 });
+
+function enterGridFullscreen() {
+  const grid = document.getElementById('live-grid');
+  const videos = grid.querySelectorAll('video');
+  // If exactly one laptop is showing, go fullscreen on that video directly
+  // (true F11-style fullscreen); otherwise fullscreen the whole grid so all
+  // visible tiles fill the screen together.
+  const target = videos.length === 1 ? videos[0] : grid;
+  const request = target.requestFullscreen || target.webkitRequestFullscreen;
+  if (request) request.call(target);
+}
 
 // ---- Focus overlay ----
 const overlay = document.getElementById('focus-overlay');
 document.getElementById('focus-close').onclick = closeFocus;
 document.getElementById('focus-prev').onclick = () => stepFocus(-1);
 document.getElementById('focus-next').onclick = () => stepFocus(1);
+document.getElementById('focus-fullscreen').onclick = () => {
+  const video = document.getElementById('focus-video');
+  const request = video.requestFullscreen || video.webkitRequestFullscreen;
+  if (request) request.call(video);
+};
 
 function visibleDeviceIds() {
   return showAll ? currentDeviceIds : currentDeviceIds.filter((id) => selectedDevices.has(id));
