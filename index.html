@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Device Monitor</title>
+<title>Employee Device Monitor</title>
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
 <script src="https://unpkg.com/simple-peer@9/simplepeer.min.js"></script>
@@ -39,9 +39,9 @@
         <div id="device-checklist" class="checklist"></div>
         <div class="size-controls">
           <span>Tile size:</span>
-          <button class="size-btn" data-size="220">S</button>
-          <button class="size-btn active" data-size="320">M</button>
-          <button class="size-btn" data-size="460">L</button>
+          <button class="size-btn" data-size="260">S</button>
+          <button class="size-btn active" data-size="400">M</button>
+          <button class="size-btn" data-size="720">L</button>
         </div>
       </div>
       <div id="live-grid" class="grid"></div>
@@ -76,7 +76,21 @@
   <!-- Larger view for a single stored screenshot -->
   <div id="image-lightbox" class="lightbox" style="display:none">
     <button id="lightbox-close" class="lightbox-close">Close</button>
+    <button id="lightbox-prev" class="lightbox-nav lightbox-prev">&larr;</button>
     <img id="lightbox-img" />
+    <button id="lightbox-next" class="lightbox-nav lightbox-next">&rarr;</button>
+    <div id="lightbox-caption" class="lightbox-caption"></div>
+  </div>
+
+  <!-- Confirmation popup before turning Live/Screenshot on or off -->
+  <div id="confirm-popup" class="password-screen" style="display:none; background: rgba(0,0,0,0.3);">
+    <div class="password-box">
+      <h2 id="confirm-popup-text">Are you sure?</h2>
+      <div style="display:flex; gap:8px;">
+        <button id="confirm-popup-cancel" style="flex:1; background:#9ca3af;">Cancel</button>
+        <button id="confirm-popup-ok" style="flex:1;">OK</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

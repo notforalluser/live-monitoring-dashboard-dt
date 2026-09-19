@@ -77,9 +77,37 @@ main { padding: 24px; }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--tile-size, 320px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
 }
+
+/* Live View: flex layout so each tile keeps its exact S/M/L width even
+   when there's only one (or a few) online - a 1fr grid column would
+   otherwise stretch a single tile to fill the whole row. */
+#live-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+#live-grid .tile {
+  width: var(--tile-size, 320px);
+  flex: 0 0 auto;
+}
+
+/* Screenshot History: fixed 4-column grid on desktop, independent of the
+   Live View size control, narrowing on smaller screens. */
+#history-gallery {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  #history-gallery { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 520px) {
+  #history-gallery { grid-template-columns: 1fr; }
+}
+
 .tile {
   background: #fff;
   border-radius: 10px;
@@ -150,6 +178,28 @@ main { padding: 24px; }
   top: 20px;
   right: 24px;
 }
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 20px;
+  padding: 12px 16px;
+  background: rgba(255,255,255,0.15);
+}
+.lightbox-nav:hover { background: rgba(255,255,255,0.3); }
+.lightbox-prev { left: 24px; }
+.lightbox-next { right: 24px; }
+.lightbox-caption {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 13px;
+  background: rgba(0,0,0,0.4);
+  padding: 6px 14px;
+  border-radius: 999px;
+}
 
 /* ---- Live controls: checklist + size ---- */
 .live-controls {
@@ -201,6 +251,10 @@ main { padding: 24px; }
 .toggle-btn.off:hover { background: #6b7280; }
 .interval-input { width: 55px; padding: 4px 6px; font-size: 12px; }
 .save-interval-btn { padding: 4px 10px; font-size: 11px; }
+.status-text { font-size: 12px; color: #6b7280; }
+.status-on { color: #16a34a; }
+.status-off { color: #9ca3af; }
+.toggle-live-btn, .toggle-shots-btn { padding: 4px 10px; font-size: 11px; }
 
 /* ---- Resizable focus view ---- */
 .focus-overlay {
