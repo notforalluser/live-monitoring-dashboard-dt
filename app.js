@@ -193,6 +193,11 @@ function renderLiveGrid(deviceIds) {
   }
 
   visible.forEach((deviceId) => {
+    const meta = deviceMeta.get(deviceId) || {};
+    const liveOn = meta.liveEnabled !== false;
+    const shotsOn = meta.screenshotEnabled !== false;
+    const interval = meta.screenshotIntervalSeconds ?? 120;
+
     const tile = document.createElement('div');
     tile.className = 'tile';
     tile.innerHTML = `
@@ -200,14 +205,37 @@ function renderLiveGrid(deviceIds) {
       <div class="tile-label">
         <span><span class="dot online"></span>${labelFor(deviceId)}</span>
         <button class="rename-btn" type="button" style="padding:2px 8px;font-size:11px;">Rename</button>
+      </div>
+      <div class="device-settings-row">
+        <button class="toggle-btn ${liveOn ? 'on' : 'off'} toggle-live-btn" type="button">Live: ${liveOn ? 'ON' : 'OFF'}</button>
+        <button class="toggle-btn ${shotsOn ? 'on' : 'off'} toggle-shots-btn" type="button">Shots: ${shotsOn ? 'ON' : 'OFF'}</button>
+        <input type="number" class="interval-input" min="5" value="${interval}" title="Screenshot interval (seconds)" />
+        <button class="save-interval-btn" type="button">Set</button>
       </div>`;
     grid.appendChild(tile);
 
     const video = tile.querySelector('video');
     video.onclick = () => openFocus(deviceId);
     tile.querySelector('.rename-btn').onclick = () => renameDevice(deviceId);
+    tile.querySelector('.toggle-live-btn').onclick = () => toggleDeviceSetting(deviceId, 'liveEnabled', !liveOn);
+    tile.querySelector('.toggle-shots-btn').onclick = () => toggleDeviceSetting(deviceId, 'screenshotEnabled', !shotsOn);
+    tile.querySelector('.save-interval-btn').onclick = () => {
+      const seconds = Number(tile.querySelector('.interval-input').value);
+      if (!seconds || seconds < 5) return alert('Enter at least 5 seconds.');
+      toggleDeviceSetting(deviceId, 'screenshotIntervalSeconds', seconds);
+    };
     watchDevice(deviceId, video);
   });
+}
+
+async function toggleDeviceSetting(deviceId, key, value) {
+  await fetch(`${SERVER_URL}/api/devices/${deviceId}/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+    body: JSON.stringify({ [key]: value }),
+  });
+  await loadDeviceList();
+  renderLiveGrid(currentDeviceIds);
 }
 
 async function renameDevice(deviceId) {
@@ -258,7 +286,13 @@ async function loadDeviceList() {
   const res = await fetch(`${SERVER_URL}/api/devices`, { headers: { 'x-api-key': API_KEY } });
   const devices = await res.json();
 
-  deviceMeta = new Map(devices.map((d) => [d.device_id, { employeeName: d.employee_name, machineName: d.machine_name }]));
+  deviceMeta = new Map(devices.map((d) => [d.device_id, {
+    employeeName: d.employee_name,
+    machineName: d.machine_name,
+    liveEnabled: d.live_enabled,
+    screenshotEnabled: d.screenshot_enabled,
+    screenshotIntervalSeconds: d.screenshot_interval_seconds,
+  }]));
 
   const select = document.getElementById('device-select');
   const previousValue = select.value;
@@ -296,6 +330,16 @@ async function deleteOneScreenshot(id) {
   loadHistory();
 }
 
+// ---- Screenshot lightbox (larger view of one stored screenshot) ----
+const lightbox = document.getElementById('image-lightbox');
+document.getElementById('lightbox-close').onclick = () => { lightbox.style.display = 'none'; };
+lightbox.onclick = (e) => { if (e.target === lightbox) lightbox.style.display = 'none'; };
+
+function openLightbox(url) {
+  document.getElementById('lightbox-img').src = url;
+  lightbox.style.display = 'flex';
+}
+
 async function loadHistory() {
   const deviceId = document.getElementById('device-select').value;
   if (!deviceId) return;
@@ -305,20 +349,24 @@ async function loadHistory() {
   const shots = await res.json();
   const gallery = document.getElementById('history-gallery');
   gallery.innerHTML = shots
-    .map(
-      (s) => `
+    .map((s) => {
+      const url = `${SERVER_URL}/api/screenshot-image/${s.id}?apiKey=${API_KEY}`;
+      return `
       <div class="tile">
-        <img src="${SERVER_URL}/api/screenshot-image/${s.id}?apiKey=${API_KEY}" loading="lazy" />
+        <img src="${url}" loading="lazy" data-full="${url}" />
         <div class="tile-label"><span>${new Date(s.captured_at).toLocaleString()}</span></div>
         <div class="history-tile-controls">
           <label><input type="checkbox" class="select-shot" data-id="${s.id}" ${selectedScreenshots.has(s.id) ? 'checked' : ''}/> Select</label>
           <button class="danger-btn del-one-btn" data-id="${s.id}" type="button">Delete</button>
         </div>
-      </div>`
-    )
+      </div>`;
+    })
     .join('');
   if (shots.length === 0) gallery.innerHTML = '<p>No screenshots yet for this device.</p>';
 
+  gallery.querySelectorAll('img[data-full]').forEach((img) => {
+    img.onclick = () => openLightbox(img.dataset.full);
+  });
   gallery.querySelectorAll('.select-shot').forEach((cb) => {
     cb.onchange = (e) => {
       if (e.target.checked) selectedScreenshots.add(cb.dataset.id);
