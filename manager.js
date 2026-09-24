@@ -73,7 +73,7 @@ async function sha256Hex(text) {
 function showApp() {
   $('password-screen').style.display = 'none';
   $('app').style.display = 'block';
-  $('user-chip').textContent = ``;
+  $('user-chip').textContent = `Signed in as ${myName}`;
   startApp();
 }
 
@@ -206,7 +206,7 @@ function connectSocket() {
 
   socket.on('viewers:update', (viewers) => {
     const names = viewers.map((v) => v.name).join(', ') || 'none';
-    $('viewer-count').textContent = `${viewers.length-1} viewing`;
+    $('viewer-count').textContent = `${viewers.length}/${TOTAL_POSSIBLE_VIEWERS} viewing (${names})`;
   });
 
   socket.on('devices:update', (deviceIds) => {
@@ -351,8 +351,8 @@ function renderLiveGrid(force = false) {
       <div class="empty">
         <strong>No employees online in this group</strong>
         ${liveGroup === 'granted'
-          ? ''
-          : ''}
+          ? 'Employees appear here when they are online and the admin has shared camera or mic access with you.'
+          : 'Employees appear here when they are online and only standard screen monitoring is shared with you.'}
       </div>`;
     refreshViewer();
     return;
@@ -579,7 +579,7 @@ function renderHistoryGroup({ reload = true } = {}) {
               <span class="badge off">Screenshots not shared</span>
             </div>`;
         }).join('')}</div>`
-      : '<div class="empty"><strong>Nothing hidden from you</strong>...</div>';
+      : '<div class="empty"><strong>Nothing hidden from you</strong>Screenshot access is shared with you for every employee.</div>';
     return;
   }
 
