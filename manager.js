@@ -206,7 +206,7 @@ function connectSocket() {
 
   socket.on('viewers:update', (viewers) => {
     const names = viewers.map((v) => v.name).join(', ') || 'none';
-    $('viewer-count').textContent = `${viewers.length}/${TOTAL_POSSIBLE_VIEWERS} viewing (${names})`;
+    $('viewer-count').textContent = `${viewers.length - 1} viewing`;
   });
 
   socket.on('devices:update', (deviceIds) => {
@@ -337,10 +337,10 @@ function renderLiveGrid(force = false) {
   if (ids.length === 0) {
     grid.innerHTML = `
       <div class="empty">
-        <strong>No employees online in this group</strong>
+        <strong>No anyone online in this group</strong>
         ${liveGroup === 'granted'
-          ? 'Employees appear here when they are online and the admin has shared camera or mic access with you.'
-          : 'Employees appear here when they are online and only standard screen monitoring is shared with you.'}
+          ? ''
+          : ''}
       </div>`;
     refreshViewer();
     return;
