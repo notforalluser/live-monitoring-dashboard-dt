@@ -317,18 +317,6 @@ function stopCamera(deviceId) {
 }
 
 // ---- Live View ----
-function accessBadges(a) {
-  const badge = (on, label) =>
-    `<span class="badge ${on ? 'on' : 'off'}" title="${on ? 'Shared with you' : 'Not shared with you'}">${label}</span>`;
-  return `
-    <div class="access-row" aria-label="Your access to this device">
-      ${badge(a.live, 'Live')}
-      ${badge(a.screenshot, 'Screenshots')}
-      ${badge(a.camera, 'Camera')}
-      ${badge(a.mic, 'Mic')}
-    </div>`;
-}
-
 function renderLiveGrid(force = false) {
   const standardIds = currentDeviceIds.filter((id) => !hasCameraOrMicAccess(id));
   const grantedIds = currentDeviceIds.filter((id) => hasCameraOrMicAccess(id));
@@ -389,7 +377,6 @@ function renderLiveGrid(force = false) {
           </div>
         </div>
       </div>
-      ${accessBadges(a)}
       ${showCameraButton ? `
         <div class="tile-foot">
           <button class="view-camera-btn" type="button" ${cameraReady ? '' : 'disabled title="Camera/mic is switched off for this employee right now"'}>
