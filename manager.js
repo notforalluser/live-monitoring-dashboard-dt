@@ -73,7 +73,7 @@ async function sha256Hex(text) {
 function showApp() {
   $('password-screen').style.display = 'none';
   $('app').style.display = 'block';
-  $('user-chip').textContent = ``;
+  $('user-chip').textContent = `Signed in`;
   startApp();
 }
 
