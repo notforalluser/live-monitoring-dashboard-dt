@@ -256,6 +256,32 @@ main { padding: 24px; }
 .status-off { color: #9ca3af; }
 .toggle-live-btn, .toggle-shots-btn { padding: 4px 10px; font-size: 11px; }
 
+.viewer-count-text { font-size: 12px; color: #6b7280; margin-right: 4px; }
+
+.manager-visibility-row { background: #f8f9fb; }
+.mv-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.sub-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.sub-nav-btn {
+  background: #eef1f6;
+  color: #6b7280;
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+.sub-nav-btn.active { background: #3b6ef0; color: #fff; }
+
 /* ---- Resizable focus view ---- */
 .focus-overlay {
   position: fixed;

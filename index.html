@@ -2,17 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Employee Device Monitor</title>
+<title>Manager Dashboard — Divine Talent</title>
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
 <script src="https://unpkg.com/simple-peer@9/simplepeer.min.js"></script>
 </head>
 <body>
 
-  <!-- Password gate: basic deterrent only, not real server-side security -->
   <div id="password-screen" class="password-screen">
     <div class="password-box">
-      <h2>Enter Password</h2>
+      <h2>Manager Login</h2>
       <input id="password-input" type="password" placeholder="Password" autofocus />
       <button id="password-submit">Unlock</button>
       <p id="password-error" class="error-text" style="display:none">Incorrect password.</p>
@@ -21,8 +20,9 @@
 
   <div id="app" style="display:none">
     <header>
-      <h1>Employee Device Monitor</h1>
+      <h1>Manager Dashboard</h1>
       <div class="conn-status">
+        <span id="viewer-count" class="viewer-count-text"></span>
         <span id="conn-dot" class="dot offline"></span>
         <span id="conn-text">Connecting...</span>
       </div>
@@ -34,43 +34,35 @@
     </nav>
 
     <main id="live-tab" class="tab-panel">
-      <div class="live-controls">
-        <button id="show-all-btn" class="pill active">Show All</button>
-        <div id="device-checklist" class="checklist"></div>
-        <div class="size-controls">
-          <span>Tile size:</span>
-          <button class="size-btn" data-size="260">S</button>
-          <button class="size-btn active" data-size="400">M</button>
-          <button class="size-btn" data-size="720" data-full="true">L (Fullscreen)</button>
-        </div>
+      <div class="sub-nav">
+        <button class="sub-nav-btn active" data-group="granted">Camera/Mic Access Granted</button>
+        <button class="sub-nav-btn" data-group="standard">Standard Monitoring Only</button>
       </div>
       <div id="live-grid" class="grid"></div>
     </main>
 
     <main id="history-tab" class="tab-panel" style="display:none">
-      <div class="history-controls">
+      <div class="sub-nav">
+        <button class="sub-nav-btn active" data-hgroup="granted">Screenshot Access Granted</button>
+        <button class="sub-nav-btn" data-hgroup="none">No Screenshot Access</button>
+      </div>
+      <div class="history-controls" id="history-controls-wrap">
         <select id="device-select"></select>
         <button id="refresh-history">Refresh</button>
-        <button id="delete-selected-btn" class="danger-btn">Delete Selected</button>
       </div>
       <div id="history-gallery" class="grid"></div>
+      <div id="no-access-list"></div>
     </main>
   </div>
 
-  <!-- Resizable focus view for one device -->
-  <div id="focus-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal" id="focus-modal">
+  <!-- Camera/mic viewing modal -->
+  <div id="camera-overlay" class="focus-overlay" style="display:none">
+    <div class="focus-modal">
       <div class="focus-header">
-        <span id="focus-label"></span>
-        <div>
-          <button id="focus-prev">&larr; Prev</button>
-          <button id="focus-next">Next &rarr;</button>
-          <button id="focus-fullscreen">Fullscreen</button>
-          <button id="focus-close">Close</button>
-        </div>
+        <span id="camera-label"></span>
+        <div><button id="camera-close">Close</button></div>
       </div>
-      <video id="focus-video" autoplay playsinline muted></video>
-      <div class="resize-hint">Drag bottom-right corner to resize</div>
+      <video id="camera-video" autoplay playsinline></video>
     </div>
   </div>
 
@@ -83,17 +75,6 @@
     <div id="lightbox-caption" class="lightbox-caption"></div>
   </div>
 
-  <!-- Confirmation popup before turning Live/Screenshot on or off -->
-  <div id="confirm-popup" class="password-screen" style="display:none; background: rgba(0,0,0,0.3);">
-    <div class="password-box">
-      <h2 id="confirm-popup-text">Are you sure?</h2>
-      <div style="display:flex; gap:8px;">
-        <button id="confirm-popup-cancel" style="flex:1; background:#9ca3af;">Cancel</button>
-        <button id="confirm-popup-ok" style="flex:1;">OK</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="app.js"></script>
+  <script src="manager.js"></script>
 </body>
 </html>
