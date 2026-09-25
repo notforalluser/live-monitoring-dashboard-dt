@@ -78,13 +78,25 @@
     </div>
   </div>
 
-  <!-- Larger view for a single stored screenshot -->
-  <div id="image-lightbox" class="lightbox" style="display:none">
-    <button id="lightbox-close" class="lightbox-close">Close</button>
-    <button id="lightbox-prev" class="lightbox-nav lightbox-prev">&larr;</button>
-    <img id="lightbox-img" />
-    <button id="lightbox-next" class="lightbox-nav lightbox-next">&rarr;</button>
-    <div id="lightbox-caption" class="lightbox-caption"></div>
+  <!-- Unified media focus overlay: opens for any live tile OR any history screenshot.
+       Supports: click-to-open popup, Fullscreen button, and Left/Right arrow-key
+       navigation that works identically in both the popup and true fullscreen. -->
+  <div id="media-overlay" class="focus-overlay" style="display:none">
+    <div class="focus-modal" id="media-modal">
+      <div class="focus-header">
+        <span id="media-label"></span>
+        <div>
+          <button id="media-prev">&larr; Prev</button>
+          <button id="media-next">Next &rarr;</button>
+          <button id="media-fullscreen">Fullscreen</button>
+          <button id="media-close">Close</button>
+        </div>
+      </div>
+      <div id="media-content-wrap">
+        <video id="media-video" autoplay playsinline muted style="display:none;"></video>
+        <img id="media-image" style="display:none;" />
+      </div>
+    </div>
   </div>
 
   <!-- Confirmation popup before turning something on or off -->

@@ -291,6 +291,12 @@ function renderLiveGrid() {
 
     const video = tile.querySelector('video');
     watchDevice(deviceId, video);
+
+    // Click any live tile's video to open it in the unified media focus overlay
+    // (popup -> Fullscreen button -> arrow-key navigation across live tiles).
+    video.style.cursor = 'zoom-in';
+    video.onclick = () => openLiveMediaFocus(deviceId);
+
     wireTileButtons(tile, deviceId);
   });
 }
@@ -326,6 +332,10 @@ function watchDevice(deviceId, videoEl) {
   peer.on('stream', (stream) => {
     streams.set(deviceId, stream);
     videoEl.srcObject = stream;
+    // If this device is currently open in the media focus overlay, keep it in sync.
+    if (mediaContext === 'live' && mediaList[mediaIndex] === deviceId) {
+      mediaVideo.srcObject = stream;
+    }
   });
   peer.on('close', () => { peers.delete(deviceId); streams.delete(deviceId); });
   socket.emit('viewer:watch', { deviceId, kind: 'screen' });
@@ -454,31 +464,6 @@ function renderHistoryGroup() {
   if (filtered.length) loadHistory(); else gallery.innerHTML = '<p>No employees with screenshot access shared yet.</p>';
 }
 
-const lightbox = document.getElementById('image-lightbox');
-let currentShots = [];
-let lightboxIndex = -1;
-document.getElementById('lightbox-close').onclick = () => { lightbox.style.display = 'none'; };
-lightbox.onclick = (e) => { if (e.target === lightbox) lightbox.style.display = 'none'; };
-document.getElementById('lightbox-prev').onclick = () => stepLightbox(-1);
-document.getElementById('lightbox-next').onclick = () => stepLightbox(1);
-
-function openLightbox(index) {
-  lightboxIndex = index;
-  renderLightbox();
-  lightbox.style.display = 'flex';
-}
-function stepLightbox(delta) {
-  if (currentShots.length === 0) return;
-  lightboxIndex = (lightboxIndex + delta + currentShots.length) % currentShots.length;
-  renderLightbox();
-}
-function renderLightbox() {
-  const shot = currentShots[lightboxIndex];
-  if (!shot) return;
-  document.getElementById('lightbox-img').src = shot.url;
-  document.getElementById('lightbox-caption').textContent = new Date(shot.capturedAt).toLocaleString();
-}
-
 async function loadHistory() {
   const deviceId = document.getElementById('device-select').value;
   if (!deviceId) return;
@@ -501,6 +486,125 @@ async function loadHistory() {
     .join('');
   if (currentShots.length === 0) gallery.innerHTML = '<p>No screenshots yet for this device.</p>';
   gallery.querySelectorAll('img[data-index]').forEach((img) => {
-    img.onclick = () => openLightbox(Number(img.dataset.index));
+    // Click any screenshot thumbnail to open it in the unified media focus overlay
+    // (popup -> Fullscreen button -> arrow-key navigation across this device's shots).
+    img.onclick = () => openHistoryMediaFocus(Number(img.dataset.index));
   });
 }
+
+// =====================================================================
+// Unified media focus overlay (live tiles + screenshot history)
+//
+// Handles: click-to-open popup (sized/styled like the existing focus
+// modals), a Fullscreen button using the real browser Fullscreen API,
+// and Left/Right arrow-key navigation that works identically whether
+// the overlay is a small popup or in true fullscreen.
+// =====================================================================
+
+let mediaContext = null;   // 'live' | 'history'
+let mediaList = [];        // array of deviceIds (live) or shot objects (history)
+let mediaIndex = -1;
+let currentShots = [];     // populated by loadHistory(); source list for history mode
+
+const mediaOverlay = document.getElementById('media-overlay');
+const mediaModal = document.getElementById('media-modal');
+const mediaVideo = document.getElementById('media-video');
+const mediaImage = document.getElementById('media-image');
+const mediaLabel = document.getElementById('media-label');
+
+document.getElementById('media-close').onclick = closeMediaOverlay;
+document.getElementById('media-prev').onclick = () => stepMedia(-1);
+document.getElementById('media-next').onclick = () => stepMedia(1);
+document.getElementById('media-fullscreen').onclick = toggleMediaFullscreen;
+
+// Click the dark backdrop (not the modal itself) to close.
+mediaOverlay.onclick = (e) => { if (e.target === mediaOverlay) closeMediaOverlay(); };
+
+function buildLiveMediaList() {
+  // Same filter renderLiveGrid() uses, restricted to devices whose video is
+  // actually shown (live monitoring shared with this viewer).
+  return currentDeviceIds.filter((id) =>
+    (liveGroup === 'granted' ? hasExtraAccess(id) : !hasExtraAccess(id)) && mv(id).live
+  );
+}
+
+function openLiveMediaFocus(deviceId) {
+  mediaContext = 'live';
+  mediaList = buildLiveMediaList();
+  mediaIndex = mediaList.indexOf(deviceId);
+  if (mediaIndex === -1) return;
+  showMediaAtIndex();
+  mediaOverlay.style.display = 'flex';
+}
+
+function openHistoryMediaFocus(index) {
+  mediaContext = 'history';
+  mediaList = currentShots;
+  mediaIndex = index;
+  if (!mediaList[mediaIndex]) return;
+  showMediaAtIndex();
+  mediaOverlay.style.display = 'flex';
+}
+
+function showMediaAtIndex() {
+  if (mediaContext === 'live') {
+    const deviceId = mediaList[mediaIndex];
+    if (!deviceId) return;
+    mediaLabel.textContent = labelFor(deviceId);
+    mediaImage.style.display = 'none';
+    mediaImage.src = '';
+    mediaVideo.style.display = 'block';
+    mediaVideo.srcObject = streams.get(deviceId) || null;
+    watchDevice(deviceId, mediaVideo);
+  } else {
+    const shot = mediaList[mediaIndex];
+    if (!shot) return;
+    mediaLabel.textContent = new Date(shot.capturedAt).toLocaleString();
+    mediaVideo.style.display = 'none';
+    mediaVideo.srcObject = null;
+    mediaImage.style.display = 'block';
+    mediaImage.src = shot.url;
+  }
+}
+
+function stepMedia(delta) {
+  if (mediaList.length === 0) return;
+  mediaIndex = (mediaIndex + delta + mediaList.length) % mediaList.length;
+  showMediaAtIndex();
+}
+
+function closeMediaOverlay() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  mediaOverlay.style.display = 'none';
+  mediaVideo.srcObject = null;
+  mediaImage.src = '';
+  mediaContext = null;
+  mediaList = [];
+  mediaIndex = -1;
+}
+
+function toggleMediaFullscreen() {
+  if (!document.fullscreenElement) {
+    mediaModal.requestFullscreen?.().catch(() => {});
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+// Arrow-key navigation: works the same whether the overlay is a normal
+// popup or the browser's true fullscreen, since fullscreen keeps this
+// same document's keydown listener active.
+document.addEventListener('keydown', (e) => {
+  if (mediaOverlay.style.display !== 'flex') return;
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    stepMedia(-1);
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    stepMedia(1);
+  } else if (e.key === 'Escape' && !document.fullscreenElement) {
+    // Let the browser handle Escape natively when in fullscreen (it exits
+    // fullscreen first); otherwise Escape closes the popup.
+    closeMediaOverlay();
+  }
+});
