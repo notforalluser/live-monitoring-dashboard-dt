@@ -282,6 +282,20 @@ main { padding: 24px; }
 }
 .sub-nav-btn.active { background: #3b6ef0; color: #fff; }
 
+.activity-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 160px 180px;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef1f6;
+  font-size: 13px;
+  align-items: center;
+}
+.activity-who { font-weight: 600; }
+.activity-what { color: #4b5563; text-transform: capitalize; }
+.activity-where { color: #6b7280; }
+.activity-when { color: #9ca3af; font-size: 12px; text-align: right; }
+
 /* ---- Resizable focus view ---- */
 .focus-overlay {
   position: fixed;

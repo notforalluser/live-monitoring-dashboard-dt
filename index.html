@@ -2,45 +2,29 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<title>Team Dashboard — Divine Talent</title>
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
 <script src="https://unpkg.com/simple-peer@9/simplepeer.min.js"></script>
 </head>
 <body>
 
-  <!-- Login -->
   <div id="password-screen" class="password-screen">
     <div class="password-box">
-      <div class="brand-mark">D</div>
-      <h2>Login</h2>
-      <p class="sub">Enter your password to open the dashboard.</p>
+      <h2>Team Login</h2>
       <input id="password-input" type="password" placeholder="Password" autofocus />
       <button id="password-submit">Unlock</button>
-      <p id="password-error" class="error-text" style="display:none">Incorrect password. Try again.</p>
+      <p id="password-error" class="error-text" style="display:none">Incorrect password.</p>
     </div>
   </div>
 
   <div id="app" style="display:none">
-    <header class="app-header">
-      <div class="brand">
-        <div class="brand-mark">D</div>
-        <div>
-          <h1>Dashboard</h1>
-        </div>
-      </div>
-      <div class="header-right">
+    <header>
+      <h1>Team Dashboard</h1>
+      <div class="conn-status">
         <span id="viewer-count" class="viewer-count-text"></span>
-        <span id="user-chip" class="user-chip"></span>
-        <div class="conn-status">
-          <span id="conn-dot" class="dot offline"></span>
-          <span id="conn-text">Connecting...</span>
-        </div>
-        <button id="logout-btn" class="btn-header" type="button">Log out</button>
+        <span id="conn-dot" class="dot offline"></span>
+        <span id="conn-text">Connecting...</span>
       </div>
     </header>
 
@@ -49,57 +33,48 @@
       <button class="tab-btn" data-tab="history">Screenshot History</button>
     </nav>
 
-    <!-- Live View: Standard Monitoring first, Camera/Mic second -->
     <main id="live-tab" class="tab-panel">
       <div class="sub-nav">
-        <button class="sub-nav-btn active" data-group="standard">
-          Standard Monitoring <span class="count" id="count-standard">0</span>
-        </button>
-        <button class="sub-nav-btn" data-group="granted">
-          Camera/Mic Access<span class="count" id="count-granted">0</span>
-        </button>
+        <button class="sub-nav-btn active" data-group="granted">Extra Access Granted</button>
+        <button class="sub-nav-btn" data-group="standard">Standard Monitoring Only</button>
       </div>
-      <div id="live-grid"></div>
+      <div id="live-grid" class="grid"></div>
     </main>
 
     <main id="history-tab" class="tab-panel" style="display:none">
       <div class="sub-nav">
-        <button class="sub-nav-btn active" data-hgroup="granted">Screenshot</button>
+        <button class="sub-nav-btn active" data-hgroup="granted">Screenshot Access Granted</button>
+        <button class="sub-nav-btn" data-hgroup="none">No Screenshot Access</button>
       </div>
       <div class="history-controls" id="history-controls-wrap">
         <select id="device-select"></select>
-        <button id="refresh-history" class="btn-ghost">Refresh</button>
+        <button id="refresh-history">Refresh</button>
       </div>
-      <div id="history-gallery"></div>
+      <div id="history-gallery" class="grid"></div>
       <div id="no-access-list"></div>
     </main>
   </div>
 
-  <!-- Viewer popup: used for both live screen and camera/mic, with slides -->
-  <div id="viewer-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal" id="viewer-modal">
+  <!-- Camera/mic viewing modal -->
+  <div id="camera-overlay" class="focus-overlay" style="display:none">
+    <div class="focus-modal">
       <div class="focus-header">
-        <div class="focus-title">
-          <span id="viewer-mode-chip" class="chip"></span>
-          <span id="viewer-label" class="label-text"></span>
-          <span id="viewer-counter" class="counter"></span>
-        </div>
-        <div class="focus-actions">
-          <button id="viewer-mute" type="button" style="display:none">Mute</button>
-          <button id="viewer-prev" type="button">&larr; Prev</button>
-          <button id="viewer-next" type="button">Next &rarr;</button>
-          <button id="viewer-fullscreen" type="button">Full screen</button>
-          <button id="viewer-close" type="button" class="close-btn">Close</button>
-        </div>
+        <span id="camera-label"></span>
+        <div><button id="camera-close">Close</button></div>
       </div>
-      <div class="stage">
-        <button id="viewer-prev-side" class="stage-nav prev" type="button" aria-label="Previous">&lsaquo;</button>
-        <video id="viewer-video" autoplay playsinline></video>
-        <div id="viewer-loading" class="stage-msg">Connecting…</div>
-        <button id="viewer-next-side" class="stage-nav next" type="button" aria-label="Next">&rsaquo;</button>
+      <video id="camera-video" autoplay playsinline></video>
+    </div>
+  </div>
+
+  <!-- Remote control modal -->
+  <div id="remote-overlay" class="focus-overlay" style="display:none">
+    <div class="focus-modal">
+      <div class="focus-header">
+        <span id="remote-label"></span>
+        <div><button id="remote-close">Close</button></div>
       </div>
-      <div id="viewer-strip" class="viewer-strip" hidden></div>
-      <div id="viewer-hint" class="resize-hint"></div>
+      <video id="remote-video" autoplay playsinline muted></video>
+      <div class="resize-hint">Click the video to click there. Type to send keystrokes to this laptop.</div>
     </div>
   </div>
 
@@ -112,8 +87,17 @@
     <div id="lightbox-caption" class="lightbox-caption"></div>
   </div>
 
-  <div id="toast-wrap" class="toast-wrap"></div>
+  <!-- Confirmation popup before turning something on or off -->
+  <div id="confirm-popup" class="password-screen" style="display:none; background: rgba(0,0,0,0.3);">
+    <div class="password-box">
+      <h2 id="confirm-popup-text">Are you sure?</h2>
+      <div style="display:flex; gap:8px;">
+        <button id="confirm-popup-cancel" style="flex:1; background:#9ca3af;">Cancel</button>
+        <button id="confirm-popup-ok" style="flex:1;">OK</button>
+      </div>
+    </div>
+  </div>
 
-  <script src="manager.js"></script>
+  <script src="member-app.js"></script>
 </body>
 </html>
