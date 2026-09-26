@@ -2,9 +2,6 @@
 const SERVER_URL = 'https://live-capturing-d-ser.onrender.com';
 const API_KEY = '10e9b1c47f0a3cc6bde4cac621c4640444c4772ca37c8fac88c9f1fab467bcf2';
 
-// SHA-256 hash of the single shared Team password (Tanmay@2026).
-// Anyone with this password gets equal access - permissions are set
-// per-employee from the settings each employee shows here.
 const PASSWORD_HASH = 'f85c65161bd472e5f2decbc110209f2e98448f8a17bbadeda59c17ab8450370d';
 
 const ICE_SERVERS = [
@@ -23,7 +20,6 @@ const cameraStreams = new Map();
 let deviceMeta = new Map();
 let currentDeviceIds = [];
 let liveGroup = 'standard';
-// History tab no longer has a sub-nav — always show granted-access devices.
 const historyGroup = 'granted';
 
 async function sha256Hex(text) {
@@ -41,10 +37,27 @@ function getOrCreateClientTag() {
   return tag;
 }
 
+// ---- Logout ----
+function logout() {
+  sessionStorage.removeItem('memberUnlocked');
+  exitFullscreenIfActive().finally(() => {
+    document.querySelectorAll('.focus-overlay, .lightbox').forEach((el) => { el.style.display = 'none'; });
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('password-screen').style.display = 'flex';
+    document.getElementById('password-input').value = '';
+    document.getElementById('password-error').style.display = 'none';
+    document.getElementById('password-input').focus();
+    if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
+    peers.forEach((p) => { try { p.destroy(); } catch (e) {} });
+    cameraPeers.forEach((p) => { try { p.destroy(); } catch (e) {} });
+    peers.clear(); streams.clear(); cameraPeers.clear(); cameraStreams.clear();
+  });
+}
+document.getElementById('logout-btn').onclick = logout;
+
 async function tryUnlock() {
   const password = document.getElementById('password-input').value;
   const hash = await sha256Hex(password);
-
   if (hash === PASSWORD_HASH) {
     myClientTag = getOrCreateClientTag();
     sessionStorage.setItem('memberUnlocked', 'true');
@@ -103,9 +116,24 @@ document.querySelectorAll('[data-group]').forEach((btn) => {
   };
 });
 
-// History sub-nav removed — no [data-hgroup] handlers needed.
-
-document.getElementById('refresh-history').onclick = loadHistory;
+// Refresh with spinner
+async function handleRefresh() {
+  const btn = document.getElementById('refresh-history');
+  if (btn.classList.contains('loading')) return;
+  const label = btn.querySelector('span');
+  btn.classList.add('loading');
+  if (label) label.textContent = 'Refreshing…';
+  try {
+    await loadHistory();
+    await loadDeviceList();
+  } finally {
+    setTimeout(() => {
+      btn.classList.remove('loading');
+      if (label) label.textContent = 'Refresh';
+    }, 400);
+  }
+}
+document.getElementById('refresh-history').onclick = handleRefresh;
 document.getElementById('device-select').onchange = loadHistory;
 
 function labelFor(deviceId) {
@@ -124,6 +152,7 @@ function setConnStatus(online) {
 }
 
 function connectSocket() {
+  if (socket) return;
   socket = io(SERVER_URL, { auth: { apiKey: API_KEY } });
 
   socket.on('connect', () => {
@@ -134,7 +163,6 @@ function connectSocket() {
   socket.on('connect_error', () => setConnStatus(false));
 
   socket.on('viewers:update', (viewers) => {
-    const names = viewers.map((v) => v.name).join(', ') || 'none';
     document.getElementById('viewer-count').textContent =
       `${viewers.length} member${viewers.length === 1 ? '' : 's'} active`;
   });
@@ -174,14 +202,17 @@ function hasExtraAccess(deviceId) {
   return !!(v.camera || v.mic || v.remoteControl);
 }
 
+// ---- Confirm popup ----
 const confirmPopup = document.getElementById('confirm-popup');
 let pendingConfirmAction = null;
 
 function confirmToggle(deviceId, key, currentlyOn, label) {
   const action = currentlyOn ? 'Turn OFF' : 'Turn ON';
-  document.getElementById('confirm-popup-text').textContent = `${action} ${label} for ${labelFor(deviceId)}?`;
+  document.getElementById('confirm-popup-text').textContent =
+    `${action} ${label} for ${labelFor(deviceId)}?`;
   pendingConfirmAction = () => toggleDeviceSetting(deviceId, key, !currentlyOn);
   confirmPopup.style.display = 'flex';
+  document.getElementById('confirm-popup-cancel').focus();
 }
 
 document.getElementById('confirm-popup-ok').onclick = () => {
@@ -204,6 +235,16 @@ async function toggleDeviceSetting(deviceId, key, value) {
   await loadDeviceList();
 }
 
+function toggleSwitchHTML(labelText, on, extraAttrs = '') {
+  return `
+    <button type="button" class="toggle-switch ${on ? 'on' : ''}" ${extraAttrs}>
+      <span class="switch-label">${labelText}</span>
+      <span class="switch-track"></span>
+      <span class="switch-state">${on ? 'ON' : 'OFF'}</span>
+    </button>`;
+}
+
+// ---- Live grid ----
 function renderLiveGrid() {
   const grid = document.getElementById('live-grid');
   grid.innerHTML = '';
@@ -212,93 +253,106 @@ function renderLiveGrid() {
     liveGroup === 'granted' ? hasExtraAccess(id) : !hasExtraAccess(id)
   );
 
-  if (filtered.length === 0) {
-    grid.innerHTML = '<p>No employees in this category right now.</p>';
+  const liveVisible = filtered.filter((id) => mv(id).live);
+
+  if (liveVisible.length === 0) {
+    const msg = filtered.length === 0
+      ? 'No devices in this category right now.'
+      : (liveGroup === 'granted'
+          ? 'No devices with Camera/Mic access are live right now.'
+          : 'No devices are live right now.');
+    grid.innerHTML = `
+      <div class="empty-state">
+        <i class="fas fa-video-slash"></i>
+        <div>${msg}</div>
+      </div>`;
     return;
   }
 
-  filtered.forEach((deviceId) => {
+  liveVisible.forEach((deviceId) => {
     const d = deviceMeta.get(deviceId) || {};
     const v = mv(deviceId);
     const tile = document.createElement('div');
     tile.className = 'tile';
 
     let rows = '';
+    if (v.screenshot) rows += `<div class="device-settings-row">${toggleSwitchHTML('Shots', d.screenshot_enabled)}</div>`;
+    if (v.camera)     rows += `<div class="device-settings-row">${toggleSwitchHTML('Camera', d.camera_enabled)}</div>`;
+    if (v.mic)        rows += `<div class="device-settings-row">${toggleSwitchHTML('Mic', d.mic_enabled)}</div>`;
 
-    if (v.live) {
-      rows += `<div class="device-settings-row">
-        <span class="status-text">Live: <b class="${d.live_enabled ? 'status-on' : 'status-off'}">${d.live_enabled ? 'ON' : 'OFF'}</b></span>
-        <button class="tg" data-key="liveEnabled" data-val="${!d.live_enabled}">${d.live_enabled ? 'Turn Off' : 'Turn On'}</button>
-      </div>`;
-    }
-    if (v.screenshot) {
-      rows += `<div class="device-settings-row">
-        <span class="status-text">Screenshot: <b class="${d.screenshot_enabled ? 'status-on' : 'status-off'}">${d.screenshot_enabled ? 'ON' : 'OFF'}</b></span>
-        <button class="tg" data-key="screenshotEnabled" data-val="${!d.screenshot_enabled}">${d.screenshot_enabled ? 'Turn Off' : 'Turn On'}</button>
-      </div>`;
-    }
-    if (v.camera) {
-      rows += `<div class="device-settings-row">
-        <span class="status-text">Camera: <b class="${d.camera_enabled ? 'status-on' : 'status-off'}">${d.camera_enabled ? 'ON' : 'OFF'}</b></span>
-        <button class="tg" data-key="cameraEnabled" data-val="${!d.camera_enabled}">${d.camera_enabled ? 'Turn Off' : 'Turn On'}</button>
-      </div>`;
-    }
-    if (v.mic) {
-      rows += `<div class="device-settings-row">
-        <span class="status-text">Mic: <b class="${d.mic_enabled ? 'status-on' : 'status-off'}">${d.mic_enabled ? 'ON' : 'OFF'}</b></span>
-        <button class="tg" data-key="micEnabled" data-val="${!d.mic_enabled}">${d.mic_enabled ? 'Turn Off' : 'Turn On'}</button>
-      </div>`;
-    }
+    // === FIX: The button label depends on what the ADMIN actually granted ===
     if (v.camera || v.mic) {
-      const canView = d.camera_enabled || d.mic_enabled;
+      const camGranted = v.camera === true;
+      const micGranted = v.mic === true;
+      const camOn = camGranted && d.camera_enabled === true;
+      const micOn = micGranted && d.mic_enabled === true;
+
+      let label, icon;
+      if (camGranted && micGranted) {
+        label = (camOn && micOn) ? 'View Camera / Listen Mic'
+              : camOn             ? 'View Camera'
+              : micOn             ? 'Listen Mic'
+              :                     'View Camera / Listen Mic';
+        icon = (camOn && micOn) ? 'fa-camera'
+             : camOn             ? 'fa-camera'
+             : micOn             ? 'fa-microphone'
+             :                     'fa-camera';
+      } else if (camGranted) {
+        label = camOn ? 'View Camera' : 'View Camera';
+        icon = 'fa-camera';
+      } else if (micGranted) {
+        label = micOn ? 'Listen Mic' : 'Listen Mic';
+        icon = 'fa-microphone';
+      }
+
+      const canOpen = camOn || micOn;
       rows += `<div class="device-settings-row">
-        <button class="view-camera-btn" ${!canView ? 'disabled title="Turn Camera or Mic on first"' : ''}>View Camera / Listen Mic</button>
-      </div>`;
-    }
-    if (v.remoteControl) {
-      rows += `<div class="device-settings-row">
-        <span class="status-text">Remote Control: <b class="${d.remote_control_enabled ? 'status-on' : 'status-off'}">${d.remote_control_enabled ? 'ON' : 'OFF'}</b></span>
-        <button class="tg" data-key="remoteControlEnabled" data-val="${!d.remote_control_enabled}">${d.remote_control_enabled ? 'Turn Off' : 'Turn On'}</button>
-      </div>
-      <div class="device-settings-row">
-        <button class="start-remote-btn" ${!d.remote_control_enabled ? 'disabled title="Turn Remote Control on first"' : ''}>Start Remote Control</button>
+        <button class="view-camera-btn" ${!canOpen ? 'disabled title="Nothing shared yet"' : ''}>
+          <i class="fas ${icon}"></i> ${label}
+        </button>
       </div>`;
     }
 
-    if (!v.live) {
-      tile.innerHTML = `
-        <div style="aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;background:#f4f6f9;color:#9ca3af;font-size:13px;">
-          Live monitoring not shared with you for this employee
-        </div>
-        <div class="tile-label"><span>${labelFor(deviceId)}</span></div>
-        ${rows}`;
-      grid.appendChild(tile);
-      wireTileButtons(tile, deviceId);
-      return;
+    if (v.remoteControl) {
+      rows += `<div class="device-settings-row">${toggleSwitchHTML('Remote', d.remote_control_enabled)}</div>
+      <div class="device-settings-row">
+        <button class="start-remote-btn" ${!d.remote_control_enabled ? 'disabled title="Turn Remote Control on first"' : ''}>
+          <i class="fas fa-mouse-pointer"></i> Start Remote Control
+        </button>
+      </div>`;
     }
 
     tile.innerHTML = `
       <video autoplay playsinline muted></video>
-      <div class="tile-label"><span><span class="dot online"></span>${labelFor(deviceId)}</span></div>
+      <div class="tile-label">
+        <span><span class="dot online"></span>${labelFor(deviceId)}</span>
+        <span class="status-text"><i class="fas fa-circle status-on" style="font-size:8px;"></i> Live</span>
+      </div>
+      <div class="device-settings-row">${toggleSwitchHTML('Live', d.live_enabled)}</div>
       ${rows}`;
     grid.appendChild(tile);
 
     const video = tile.querySelector('video');
+    video.addEventListener('click', () => openFocus(deviceId));
     watchDevice(deviceId, video);
     wireTileButtons(tile, deviceId);
   });
 }
 
 function wireTileButtons(tile, deviceId) {
-  tile.querySelectorAll('.tg').forEach((btn) => {
-    const key = btn.dataset.key;
-    const val = btn.dataset.val === 'true';
-    const currentOn = !val;
-    const labelMap = {
-      liveEnabled: 'Live Monitoring', screenshotEnabled: 'Screenshot Capture',
-      cameraEnabled: 'Camera Access', micEnabled: 'Microphone Access', remoteControlEnabled: 'Remote Control',
+  const d = deviceMeta.get(deviceId) || {};
+  tile.querySelectorAll('.toggle-switch').forEach((sw) => {
+    const labelText = sw.querySelector('.switch-label').textContent.trim();
+    const map = {
+      'Live':   { key: 'liveEnabled',          current: d.live_enabled,           pretty: 'Live Monitoring' },
+      'Shots':  { key: 'screenshotEnabled',    current: d.screenshot_enabled,     pretty: 'Screenshot Capture' },
+      'Camera': { key: 'cameraEnabled',        current: d.camera_enabled,         pretty: 'Camera Access' },
+      'Mic':    { key: 'micEnabled',           current: d.mic_enabled,            pretty: 'Microphone Access' },
+      'Remote': { key: 'remoteControlEnabled', current: d.remote_control_enabled, pretty: 'Remote Control' },
     };
-    btn.onclick = () => confirmToggle(deviceId, key, currentOn, labelMap[key] || key);
+    const meta = map[labelText];
+    if (!meta) return;
+    sw.onclick = () => confirmToggle(deviceId, meta.key, !!meta.current, meta.pretty);
   });
   const viewBtn = tile.querySelector('.view-camera-btn');
   if (viewBtn) viewBtn.onclick = () => openCameraModal(deviceId);
@@ -320,32 +374,229 @@ function watchDevice(deviceId, videoEl) {
   peer.on('stream', (stream) => {
     streams.set(deviceId, stream);
     videoEl.srcObject = stream;
+    if (focusIndex >= 0 && visibleLiveIds()[focusIndex] === deviceId) {
+      document.getElementById('focus-video').srcObject = stream;
+    }
   });
   peer.on('close', () => { peers.delete(deviceId); streams.delete(deviceId); });
   socket.emit('viewer:watch', { deviceId, kind: 'screen' });
 }
 
+// ============================================================
+// Auto-hide UI
+// ============================================================
+const AUTO_HIDE_MS = 2000;
+const hideTimers = new WeakMap();
+
+function wireAutoHide(modal) {
+  const ui = modal.querySelector('.focus-ui');
+  if (!ui) return;
+  const show = () => {
+    ui.classList.remove('hidden');
+    modal.classList.remove('ui-hidden');
+    resetTimer();
+  };
+  const resetTimer = () => {
+    const prev = hideTimers.get(modal);
+    if (prev) clearTimeout(prev);
+    const t = setTimeout(() => {
+      ui.classList.add('hidden');
+      if (isFullscreen()) modal.classList.add('ui-hidden');
+    }, AUTO_HIDE_MS);
+    hideTimers.set(modal, t);
+  };
+  if (!modal._autohideWired) {
+    modal._autohideWired = true;
+    modal.addEventListener('mousemove', show, { passive: true });
+    modal.addEventListener('mouseenter', show, { passive: true });
+    modal.addEventListener('touchstart', show, { passive: true });
+    modal.addEventListener('touchmove', show, { passive: true });
+  }
+  resetTimer();
+}
+
+// ============================================================
+// FOCUS (live popup)
+// ============================================================
+const focusOverlay = document.getElementById('focus-overlay');
+const focusModal = document.getElementById('focus-modal');
+let focusIndex = -1;
+
+document.getElementById('focus-close').onclick = closeFocus;
+document.getElementById('focus-prev').onclick = () => stepFocus(-1);
+document.getElementById('focus-next').onclick = () => stepFocus(1);
+document.getElementById('focus-fullscreen').onclick = () => toggleFullscreen(focusModal);
+
+function visibleLiveIds() {
+  return currentDeviceIds.filter((id) => {
+    const v = mv(id);
+    if (!v.live) return false;
+    return liveGroup === 'granted' ? hasExtraAccess(id) : !hasExtraAccess(id);
+  });
+}
+
+function openFocus(deviceId) {
+  const list = visibleLiveIds();
+  focusIndex = list.indexOf(deviceId);
+  if (focusIndex < 0) focusIndex = 0;
+  renderFocus();
+  focusOverlay.style.display = 'flex';
+  document.addEventListener('keydown', onFocusKeyDown);
+  wireAutoHide(focusModal);
+}
+
+function closeFocus() {
+  exitFullscreenIfActive().finally(() => {
+    focusOverlay.style.display = 'none';
+    focusIndex = -1;
+    document.removeEventListener('keydown', onFocusKeyDown);
+  });
+}
+
+function stepFocus(delta) {
+  const list = visibleLiveIds();
+  if (list.length === 0) return;
+  const next = focusIndex + delta;
+  if (next < 0 || next >= list.length) return;
+  focusIndex = next;
+  renderFocus();
+}
+
+function renderFocus() {
+  const list = visibleLiveIds();
+  const deviceId = list[focusIndex];
+  if (!deviceId) return closeFocus();
+  document.getElementById('focus-label').innerHTML =
+    `<i class="fas fa-tv"></i> ${labelFor(deviceId)}`;
+  document.getElementById('focus-video').srcObject = streams.get(deviceId) || null;
+  document.getElementById('focus-prev').disabled = focusIndex === 0;
+  document.getElementById('focus-next').disabled = focusIndex === list.length - 1;
+}
+
+function onFocusKeyDown(e) {
+  if (focusOverlay.style.display !== 'flex') return;
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); stepFocus(-1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); stepFocus(1);  }
+  if (e.key === 'Escape') { if (!isFullscreen()) closeFocus(); }
+}
+
+// ---- Fullscreen helpers ----
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+function exitFullscreenIfActive() {
+  return new Promise((resolve) => {
+    if (!isFullscreen()) return resolve();
+    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if (!exit) return resolve();
+    Promise.resolve(exit.call(document)).then(resolve).catch(resolve);
+  });
+}
+function toggleFullscreen(el) {
+  if (!isFullscreen()) {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (req) req.call(el);
+  } else {
+    exitFullscreenIfActive();
+  }
+}
+function updateFullscreenButtons() {
+  const isFs = isFullscreen();
+  document.querySelectorAll('#focus-fullscreen, #camera-fullscreen, #remote-fullscreen').forEach((btn) => {
+    btn.innerHTML = isFs
+      ? '<i class="fas fa-compress"></i> Exit Fullscreen'
+      : '<i class="fas fa-expand"></i> Fullscreen';
+  });
+  if (!isFs) {
+    [focusModal, cameraModal, remoteModal].forEach((m) => {
+      if (!m) return;
+      const ui = m.querySelector('.focus-ui');
+      if (ui) ui.classList.remove('hidden');
+      m.classList.remove('ui-hidden');
+    });
+  } else {
+    [focusModal, cameraModal, remoteModal].forEach((m) => {
+      if (!m) return;
+      const ui = m.querySelector('.focus-ui');
+      if (ui) {
+        ui.classList.remove('hidden');
+        m.classList.remove('ui-hidden');
+        const prev = hideTimers.get(m);
+        if (prev) clearTimeout(prev);
+        const t = setTimeout(() => {
+          ui.classList.add('hidden');
+          m.classList.add('ui-hidden');
+        }, AUTO_HIDE_MS);
+        hideTimers.set(m, t);
+      }
+    });
+  }
+}
+document.addEventListener('fullscreenchange', updateFullscreenButtons);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButtons);
+
+// ============================================================
+// CAMERA MODAL — camera & mic are INDEPENDENT
+// The header and hint reflect only what the admin granted.
+// ============================================================
 const cameraOverlay = document.getElementById('camera-overlay');
+const cameraModal = document.getElementById('camera-modal');
 let activeCameraDeviceId = null;
 document.getElementById('camera-close').onclick = closeCameraModal;
+document.getElementById('camera-fullscreen').onclick = () => toggleFullscreen(cameraModal);
 
 function openCameraModal(deviceId) {
   activeCameraDeviceId = deviceId;
-  document.getElementById('camera-label').textContent = `${labelFor(deviceId)} — Camera/Mic`;
+  const v = mv(deviceId);
+  const meta = deviceMeta.get(deviceId) || {};
+
+  // What did the ADMIN grant?
+  const camGranted = v.camera === true;
+  const micGranted = v.mic === true;
+  // And is the setting currently enabled?
+  const camOn = camGranted && meta.camera_enabled === true;
+  const micOn = micGranted && meta.mic_enabled === true;
+
+  // Choose label + icon based on what is actually granted + on.
+  let headerLabel, headerIcon;
+  if (camOn && micOn)      { headerLabel = 'Camera & Microphone'; headerIcon = 'fa-camera'; }
+  else if (camOn)          { headerLabel = 'Camera';              headerIcon = 'fa-camera'; }
+  else if (micOn)          { headerLabel = 'Microphone';          headerIcon = 'fa-microphone'; }
+  else                     { headerLabel = 'Nothing Shared';      headerIcon = 'fa-ban'; }
+
+  document.getElementById('camera-label').innerHTML =
+    `<i class="fas ${headerIcon}"></i> ${labelFor(deviceId)} — ${headerLabel}`;
+
+  // Adapt hint text.
+  const hint = document.getElementById('camera-hint');
+  if (camOn && micOn)      hint.innerHTML = '<i class="fas fa-info-circle"></i> Camera and microphone stream. Move the mouse to show controls.';
+  else if (camOn)          hint.innerHTML = '<i class="fas fa-info-circle"></i> Camera-only stream. Move the mouse to show controls.';
+  else if (micOn)          hint.innerHTML = '<i class="fas fa-info-circle"></i> Microphone-only stream. Move the mouse to show controls.';
+  else                     hint.innerHTML = '<i class="fas fa-info-circle"></i> Nothing shared by this device.';
+
   document.getElementById('camera-video').srcObject = cameraStreams.get(deviceId) || null;
   cameraOverlay.style.display = 'flex';
   watchCameraDevice(deviceId);
-  logActivity('viewed_camera_mic', deviceId);
+  logActivity(
+    camOn && micOn ? 'viewed_camera_mic'
+    : camOn        ? 'viewed_camera'
+    : micOn        ? 'listened_mic'
+    :                'viewed_camera_modal',
+    deviceId
+  );
+  wireAutoHide(cameraModal);
 }
 
 function closeCameraModal() {
-  cameraOverlay.style.display = 'none';
-  if (activeCameraDeviceId && cameraPeers.has(activeCameraDeviceId)) {
-    cameraPeers.get(activeCameraDeviceId).destroy();
-    cameraPeers.delete(activeCameraDeviceId);
-    cameraStreams.delete(activeCameraDeviceId);
-  }
-  activeCameraDeviceId = null;
+  exitFullscreenIfActive().finally(() => {
+    cameraOverlay.style.display = 'none';
+    if (activeCameraDeviceId && cameraPeers.has(activeCameraDeviceId)) {
+      cameraPeers.get(activeCameraDeviceId).destroy();
+      cameraPeers.delete(activeCameraDeviceId);
+      cameraStreams.delete(activeCameraDeviceId);
+    }
+    activeCameraDeviceId = null;
+  });
 }
 
 function watchCameraDevice(deviceId) {
@@ -368,31 +619,37 @@ function watchCameraDevice(deviceId) {
   socket.emit('viewer:watch', { deviceId, kind: 'camera' });
 }
 
+// ---- Remote modal ----
 const remoteOverlay = document.getElementById('remote-overlay');
+const remoteModal = document.getElementById('remote-modal');
 let remoteControlDeviceId = null;
 let remoteScreenSize = { width: 1920, height: 1080 };
 document.getElementById('remote-close').onclick = closeRemoteControlModal;
+document.getElementById('remote-fullscreen').onclick = () => toggleFullscreen(remoteModal);
 
 function openRemoteControlModal(deviceId) {
   remoteControlDeviceId = deviceId;
-  document.getElementById('remote-label').textContent = `${labelFor(deviceId)} — Remote Control`;
+  document.getElementById('remote-label').innerHTML =
+    `<i class="fas fa-mouse-pointer"></i> ${labelFor(deviceId)} — Remote Control`;
   const video = document.getElementById('remote-video');
   video.srcObject = streams.get(deviceId) || null;
   remoteOverlay.style.display = 'flex';
   watchDevice(deviceId, video);
   socket.emit('remote:start', { deviceId });
   logActivity('started_remote_control', deviceId);
-
   video.onclick = (e) => sendRemoteClick(video, e, 'left');
   video.oncontextmenu = (e) => { e.preventDefault(); sendRemoteClick(video, e, 'right'); };
   document.addEventListener('keydown', onRemoteKeyDown);
+  wireAutoHide(remoteModal);
 }
 
 function closeRemoteControlModal() {
-  remoteOverlay.style.display = 'none';
-  if (remoteControlDeviceId) socket.emit('remote:stop', { deviceId: remoteControlDeviceId });
-  document.removeEventListener('keydown', onRemoteKeyDown);
-  remoteControlDeviceId = null;
+  exitFullscreenIfActive().finally(() => {
+    remoteOverlay.style.display = 'none';
+    if (remoteControlDeviceId) socket.emit('remote:stop', { deviceId: remoteControlDeviceId });
+    document.removeEventListener('keydown', onRemoteKeyDown);
+    remoteControlDeviceId = null;
+  });
 }
 
 function sendRemoteClick(video, e, button) {
@@ -418,6 +675,7 @@ function onRemoteKeyDown(e) {
   if (text) socket.emit('remote:input', { deviceId: remoteControlDeviceId, input: { type: 'key', text } });
 }
 
+// ---- History ----
 function hasScreenshotAccess(deviceId) {
   return mv(deviceId).screenshot !== false;
 }
@@ -425,17 +683,15 @@ function hasScreenshotAccess(deviceId) {
 function renderHistoryGroup() {
   const allIds = Array.from(deviceMeta.keys());
   const filtered = allIds.filter((id) => hasScreenshotAccess(id));
-
   const select = document.getElementById('device-select');
   const wrap = document.getElementById('history-controls-wrap');
   const gallery = document.getElementById('history-gallery');
-
   wrap.style.display = 'flex';
   const previousValue = select.value;
   select.innerHTML = filtered.map((id) => `<option value="${id}">${labelFor(id)}</option>`).join('');
   if (filtered.includes(previousValue)) select.value = previousValue;
   if (filtered.length) loadHistory();
-  else gallery.innerHTML = '<p>No employees with screenshot access shared yet.</p>';
+  else gallery.innerHTML = '<p>No devices with screenshot access shared yet.</p>';
 }
 
 const lightbox = document.getElementById('image-lightbox');
@@ -448,7 +704,6 @@ lightbox.onclick = (e) => { if (e.target === lightbox) lightbox.style.display = 
 document.getElementById('lightbox-prev').onclick = () => stepLightbox(-1);
 document.getElementById('lightbox-next').onclick = () => stepLightbox(1);
 
-// Keyboard arrows respect boundaries (no wrap-around).
 document.addEventListener('keydown', (e) => {
   if (lightbox.style.display !== 'flex') return;
   if (e.key === 'ArrowLeft')  { e.preventDefault(); stepLightbox(-1); }
@@ -477,7 +732,6 @@ function openLightbox(index) {
 function stepLightbox(delta) {
   if (currentShots.length === 0) return;
   const next = lightboxIndex + delta;
-  // Clamp — do NOT wrap around. First image blocks Prev, last blocks Next.
   if (next < 0 || next >= currentShots.length) return;
   lightboxIndex = next;
   renderLightbox();
@@ -488,12 +742,8 @@ function renderLightbox() {
   if (!shot) return;
   document.getElementById('lightbox-img').src = shot.url;
   document.getElementById('lightbox-caption').textContent = new Date(shot.capturedAt).toLocaleString();
-
-  // Disable arrows at the boundaries so it's obvious there's no loop.
-  const prevBtn = document.getElementById('lightbox-prev');
-  const nextBtn = document.getElementById('lightbox-next');
-  prevBtn.disabled = lightboxIndex === 0;
-  nextBtn.disabled = lightboxIndex === currentShots.length - 1;
+  document.getElementById('lightbox-prev').disabled = lightboxIndex === 0;
+  document.getElementById('lightbox-next').disabled = lightboxIndex === currentShots.length - 1;
 }
 
 function dateGroupLabel(date) {

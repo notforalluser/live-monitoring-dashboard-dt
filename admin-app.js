@@ -1,20 +1,10 @@
 // ---- Baked-in connection details (no manual entry needed) ----
-// NOTE: since this is a static site with no backend of its own, anyone who
-// opens browser dev tools can read these values regardless of the password
-// screen below. Treat the password as a basic deterrent, not real security -
-// don't share this URL publicly, and rotate the API key if you ever suspect
-// it leaked.
 const SERVER_URL = 'https://live-capturing-d-ser.onrender.com';
 const API_KEY = '10e9b1c47f0a3cc6bde4cac621c4640444c4772ca37c8fac88c9f1fab467bcf2';
-
-// SHA-256 hash of the Super Admin password (not the password itself).
-// This page (admin.html) only ever accepts this one password.
 const PASSWORD_HASH = '6eb3748e9b511796ec5c0a36d816cdaf6ac425cf4c40a886e31084ab99c3519f';
 const VIEWER_NAME = 'Founder (Super Admin)';
 const VIEWER_ROLE = 'super_admin';
 
-// Same TURN relay as the agent - both sides need matching config for a
-// relayed connection to succeed.
 const ICE_SERVERS = [
   { urls: 'stun:stun.relay.metered.ca:80' },
   { urls: 'turn:global.relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
@@ -32,7 +22,7 @@ let showAll = true;
 let currentDeviceIds = [];
 let deviceMeta = new Map();
 let focusIndex = -1;
-let selectMode = false; // history thumbnail select mode
+let selectMode = false;
 
 // ---- Password gate ----
 async function sha256Hex(text) {
@@ -40,6 +30,23 @@ async function sha256Hex(text) {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+function logout() {
+  sessionStorage.removeItem('unlocked');
+  exitFullscreenIfActive().finally(() => {
+    document.querySelectorAll('.focus-overlay, .lightbox').forEach((el) => { el.style.display = 'none'; });
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('password-screen').style.display = 'flex';
+    document.getElementById('password-input').value = '';
+    document.getElementById('password-error').style.display = 'none';
+    document.getElementById('password-input').focus();
+    if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
+    peers.forEach((p) => { try { p.destroy(); } catch (e) {} });
+    cameraPeers.forEach((p) => { try { p.destroy(); } catch (e) {} });
+    peers.clear(); streams.clear(); cameraPeers.clear(); cameraStreams.clear();
+  });
+}
+document.getElementById('logout-btn').onclick = logout;
 
 async function tryUnlock() {
   const input = document.getElementById('password-input').value;
@@ -108,7 +115,23 @@ function renderActivityLog(logs) {
     .join('');
 }
 
-document.getElementById('refresh-history').onclick = loadHistory;
+async function handleRefresh() {
+  const btn = document.getElementById('refresh-history');
+  if (btn.classList.contains('loading')) return;
+  btn.classList.add('loading');
+  const original = btn.textContent;
+  btn.textContent = 'Refreshing…';
+  try {
+    await loadDeviceList();
+    await loadHistory();
+  } finally {
+    setTimeout(() => {
+      btn.classList.remove('loading');
+      btn.textContent = original;
+    }, 400);
+  }
+}
+document.getElementById('refresh-history').onclick = handleRefresh;
 document.getElementById('device-select').onchange = loadHistory;
 
 document.getElementById('show-all-btn').onclick = () => {
@@ -119,16 +142,12 @@ document.getElementById('show-all-btn').onclick = () => {
   renderLiveGrid(currentDeviceIds);
 };
 
-// ---- Tile size controls ----
 document.querySelectorAll('.size-btn').forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll('.size-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     document.documentElement.style.setProperty('--tile-size', `${btn.dataset.size}px`);
-
-    if (btn.dataset.full === 'true') {
-      enterGridFullscreen();
-    }
+    if (btn.dataset.full === 'true') enterGridFullscreen();
   };
 });
 
@@ -142,14 +161,11 @@ function enterGridFullscreen() {
 
 // ---- Focus overlay ----
 const overlay = document.getElementById('focus-overlay');
+const focusModal = document.getElementById('focus-modal');
 document.getElementById('focus-close').onclick = closeFocus;
 document.getElementById('focus-prev').onclick = () => stepFocus(-1);
 document.getElementById('focus-next').onclick = () => stepFocus(1);
-document.getElementById('focus-fullscreen').onclick = () => {
-  const video = document.getElementById('focus-video');
-  const request = video.requestFullscreen || video.webkitRequestFullscreen;
-  if (request) request.call(video);
-};
+document.getElementById('focus-fullscreen').onclick = () => toggleFullscreen(focusModal);
 
 function visibleDeviceIds() {
   return showAll ? currentDeviceIds : currentDeviceIds.filter((id) => selectedDevices.has(id));
@@ -167,17 +183,23 @@ function openFocus(deviceId) {
   focusIndex = list.indexOf(deviceId);
   renderFocus();
   overlay.style.display = 'flex';
+  document.addEventListener('keydown', onFocusKeyDown);
 }
 
 function closeFocus() {
-  overlay.style.display = 'none';
-  focusIndex = -1;
+  exitFullscreenIfActive().finally(() => {
+    overlay.style.display = 'none';
+    focusIndex = -1;
+    document.removeEventListener('keydown', onFocusKeyDown);
+  });
 }
 
 function stepFocus(delta) {
   const list = visibleDeviceIds();
   if (list.length === 0) return;
-  focusIndex = (focusIndex + delta + list.length) % list.length;
+  const next = focusIndex + delta;
+  if (next < 0 || next >= list.length) return;
+  focusIndex = next;
   renderFocus();
 }
 
@@ -187,7 +209,45 @@ function renderFocus() {
   if (!deviceId) return closeFocus();
   document.getElementById('focus-label').textContent = labelFor(deviceId);
   document.getElementById('focus-video').srcObject = streams.get(deviceId) || null;
+  document.getElementById('focus-prev').disabled = focusIndex === 0;
+  document.getElementById('focus-next').disabled = focusIndex === list.length - 1;
 }
+
+function onFocusKeyDown(e) {
+  if (overlay.style.display !== 'flex') return;
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); stepFocus(-1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); stepFocus(1);  }
+  if (e.key === 'Escape') { if (!isFullscreen()) closeFocus(); }
+}
+
+// ---- Fullscreen helpers ----
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+function exitFullscreenIfActive() {
+  return new Promise((resolve) => {
+    if (!isFullscreen()) return resolve();
+    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if (!exit) return resolve();
+    Promise.resolve(exit.call(document)).then(resolve).catch(resolve);
+  });
+}
+function toggleFullscreen(el) {
+  if (!isFullscreen()) {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (req) req.call(el);
+  } else {
+    exitFullscreenIfActive();
+  }
+}
+function updateFullscreenButtons() {
+  const isFs = isFullscreen();
+  document.querySelectorAll('#focus-fullscreen, #camera-fullscreen, #remote-fullscreen').forEach((btn) => {
+    btn.textContent = isFs ? 'Exit Fullscreen' : 'Fullscreen';
+  });
+}
+document.addEventListener('fullscreenchange', updateFullscreenButtons);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButtons);
 
 // ---- Connection status dot ----
 function setConnStatus(online) {
@@ -200,6 +260,7 @@ function setConnStatus(online) {
 
 // ---- Live view ----
 function connectSocket() {
+  if (socket) return;
   socket = io(SERVER_URL, { auth: { apiKey: API_KEY } });
 
   socket.on('connect', () => {
@@ -244,9 +305,7 @@ function connectSocket() {
   });
 
   socket.on('remote:screen-info', ({ deviceId, width, height }) => {
-    if (deviceId === remoteControlDeviceId) {
-      remoteScreenSize = { width, height };
-    }
+    if (deviceId === remoteControlDeviceId) remoteScreenSize = { width, height };
   });
 }
 
@@ -269,7 +328,6 @@ function renderChecklist(deviceIds) {
   });
 }
 
-// ---- Toggle switch helper ----
 function toggleSwitchHTML(labelText, on, extraAttrs = '') {
   return `
     <button type="button" class="toggle-switch ${on ? 'on' : ''}" ${extraAttrs}>
@@ -306,6 +364,27 @@ function renderLiveGrid(deviceIds) {
       : '<span class="status-off">Employee: Pending</span>';
     const consentBlocksAccess = consent !== 'granted';
 
+    // View button label adapts to what's actually granted
+    let viewBtnLabel = '';
+    let viewBtnDisabled = true;
+    let viewBtnTitle = '';
+    if (consentBlocksAccess) {
+      viewBtnLabel = 'Awaiting Consent';
+      viewBtnTitle = 'Requires employee consent';
+    } else if (cameraOn && micOn) {
+      viewBtnLabel = 'View Camera / Listen Mic';
+      viewBtnDisabled = false;
+    } else if (cameraOn) {
+      viewBtnLabel = 'View Camera';
+      viewBtnDisabled = false;
+    } else if (micOn) {
+      viewBtnLabel = 'Listen Mic';
+      viewBtnDisabled = false;
+    } else {
+      viewBtnLabel = 'View Camera / Listen Mic';
+      viewBtnTitle = 'Turn Camera or Mic on first';
+    }
+
     const tile = document.createElement('div');
     tile.className = 'tile';
     tile.innerHTML = `
@@ -337,7 +416,7 @@ function renderLiveGrid(deviceIds) {
       </div>
 
       <div class="device-settings-row">
-        <button class="view-camera-btn" type="button" ${(!cameraOn && !micOn) || consentBlocksAccess ? 'disabled title="Requires employee consent + admin permission"' : ''}>View Camera / Listen Mic</button>
+        <button class="view-camera-btn" type="button" ${viewBtnDisabled ? `disabled title="${viewBtnTitle}"` : ''}>${viewBtnLabel}</button>
       </div>
 
       <div class="device-settings-row">
@@ -389,7 +468,6 @@ function renderLiveGrid(deviceIds) {
   });
 }
 
-// ---- Activity logging ----
 function logActivity(action, deviceId) {
   if (!socket) return;
   socket.emit('activity:log', {
@@ -420,7 +498,7 @@ async function updateManagerVisibility(deviceId, key, value) {
   await loadDeviceList();
 }
 
-// ---- Confirmation popup (Cancel focused by default) ----
+// ---- Confirmation popup ----
 const confirmPopup = document.getElementById('confirm-popup');
 let pendingConfirmAction = null;
 
@@ -433,7 +511,6 @@ function showConfirm(message, onConfirm, opts = {}) {
   okBtn.classList.toggle('secondary-btn', opts.danger === false);
   pendingConfirmAction = onConfirm;
   confirmPopup.style.display = 'flex';
-  // Focus Cancel by default so accidental Enter doesn't delete.
   cancelBtn.focus();
 }
 
@@ -449,7 +526,6 @@ document.getElementById('confirm-popup-ok').onclick = () => {
 };
 document.getElementById('confirm-popup-cancel').onclick = closeConfirm;
 
-// Simple alert using the same popup style (Cancel hidden, OK only)
 function showAlert(message) {
   document.getElementById('confirm-popup-text').textContent = message;
   const okBtn = document.getElementById('confirm-popup-ok');
@@ -489,15 +565,12 @@ function watchDevice(deviceId, videoEl) {
     if (streams.has(deviceId)) videoEl.srcObject = streams.get(deviceId);
     return;
   }
-
   const peer = new SimplePeer({ initiator: false, trickle: true, config: { iceServers: ICE_SERVERS } });
   peers.set(deviceId, peer);
-
   peer.on('signal', (data) => {
     if (!peer.fromId) return;
     socket.emit('signal', { to: peer.fromId, data, deviceId, kind: 'screen' });
   });
-
   peer.on('stream', (stream) => {
     streams.set(deviceId, stream);
     videoEl.srcObject = stream;
@@ -505,38 +578,58 @@ function watchDevice(deviceId, videoEl) {
       document.getElementById('focus-video').srcObject = stream;
     }
   });
-
   peer.on('close', () => {
     peers.delete(deviceId);
     streams.delete(deviceId);
   });
-
   socket.emit('viewer:watch', { deviceId, kind: 'screen' });
 }
 
-// ---- Camera/mic viewing ----
+// ============================================================
+// Camera/mic viewing — camera and mic are INDEPENDENT
+// ============================================================
 const cameraOverlay = document.getElementById('camera-overlay');
+const cameraModal = document.getElementById('camera-modal');
 let activeCameraDeviceId = null;
 
 document.getElementById('camera-close').onclick = closeCameraModal;
+document.getElementById('camera-fullscreen').onclick = () => toggleFullscreen(cameraModal);
 
 function openCameraModal(deviceId) {
   activeCameraDeviceId = deviceId;
-  document.getElementById('camera-label').textContent = `${labelFor(deviceId)} — Camera/Mic`;
+  const meta = deviceMeta.get(deviceId) || {};
+  const camOn = meta.cameraEnabled === true;
+  const micOn = meta.micEnabled === true;
+
+  let labelText = '';
+  if (camOn && micOn) labelText = `${labelFor(deviceId)} — Camera & Mic`;
+  else if (camOn)      labelText = `${labelFor(deviceId)} — Camera`;
+  else if (micOn)      labelText = `${labelFor(deviceId)} — Microphone`;
+  else                 labelText = `${labelFor(deviceId)} — No Camera/Mic`;
+  document.getElementById('camera-label').textContent = labelText;
+
+  const hint = document.getElementById('camera-hint');
+  if (camOn && micOn) hint.textContent = 'Camera and microphone stream. Press Esc to exit fullscreen.';
+  else if (camOn)     hint.textContent = 'Camera-only stream. Press Esc to exit fullscreen.';
+  else if (micOn)     hint.textContent = 'Microphone-only stream. Press Esc to exit fullscreen.';
+  else                hint.textContent = 'Nothing shared.';
+
   document.getElementById('camera-video').srcObject = cameraStreams.get(deviceId) || null;
   cameraOverlay.style.display = 'flex';
   watchCameraDevice(deviceId);
-  logActivity('viewed_camera_mic', deviceId);
+  logActivity(camOn && micOn ? 'viewed_camera_mic' : camOn ? 'viewed_camera' : micOn ? 'listened_mic' : 'viewed_nothing', deviceId);
 }
 
 function closeCameraModal() {
-  cameraOverlay.style.display = 'none';
-  if (activeCameraDeviceId && cameraPeers.has(activeCameraDeviceId)) {
-    cameraPeers.get(activeCameraDeviceId).destroy();
-    cameraPeers.delete(activeCameraDeviceId);
-    cameraStreams.delete(activeCameraDeviceId);
-  }
-  activeCameraDeviceId = null;
+  exitFullscreenIfActive().finally(() => {
+    cameraOverlay.style.display = 'none';
+    if (activeCameraDeviceId && cameraPeers.has(activeCameraDeviceId)) {
+      cameraPeers.get(activeCameraDeviceId).destroy();
+      cameraPeers.delete(activeCameraDeviceId);
+      cameraStreams.delete(activeCameraDeviceId);
+    }
+    activeCameraDeviceId = null;
+  });
 }
 
 function watchCameraDevice(deviceId) {
@@ -545,64 +638,58 @@ function watchCameraDevice(deviceId) {
     if (existing) document.getElementById('camera-video').srcObject = existing;
     return;
   }
-
   const peer = new SimplePeer({ initiator: false, trickle: true, config: { iceServers: ICE_SERVERS } });
   cameraPeers.set(deviceId, peer);
-
   peer.on('signal', (data) => {
     if (!peer.fromId) return;
     socket.emit('signal', { to: peer.fromId, data, deviceId, kind: 'camera' });
   });
-
   peer.on('stream', (stream) => {
     cameraStreams.set(deviceId, stream);
-    if (activeCameraDeviceId === deviceId) {
-      document.getElementById('camera-video').srcObject = stream;
-    }
+    if (activeCameraDeviceId === deviceId) document.getElementById('camera-video').srcObject = stream;
   });
-
   peer.on('close', () => {
     cameraPeers.delete(deviceId);
     cameraStreams.delete(deviceId);
   });
-
   socket.emit('viewer:watch', { deviceId, kind: 'camera' });
 }
 
-// ---- Remote control (mouse/keyboard) ----
+// ============================================================
+// Remote control — header & hint are OUTSIDE the video, so the
+// entire controlled screen area is clickable. In fullscreen the
+// header/hint are hidden completely (CSS handles it) — press Esc
+// to exit fullscreen and get the buttons back.
+// ============================================================
 const remoteOverlay = document.getElementById('remote-overlay');
+const remoteModal = document.getElementById('remote-modal');
 let remoteControlDeviceId = null;
 let remoteScreenSize = { width: 1920, height: 1080 };
 
 document.getElementById('remote-close').onclick = closeRemoteControlModal;
+document.getElementById('remote-fullscreen').onclick = () => toggleFullscreen(remoteModal);
 
 function openRemoteControlModal(deviceId) {
   remoteControlDeviceId = deviceId;
   document.getElementById('remote-label').textContent = `${labelFor(deviceId)} — Remote Control`;
-
   const video = document.getElementById('remote-video');
   video.srcObject = streams.get(deviceId) || null;
   remoteOverlay.style.display = 'flex';
   watchDevice(deviceId, video);
-
   socket.emit('remote:start', { deviceId });
   logActivity('started_remote_control', deviceId);
-
   video.onclick = (e) => sendRemoteClick(video, e, 'left');
-  video.oncontextmenu = (e) => {
-    e.preventDefault();
-    sendRemoteClick(video, e, 'right');
-  };
+  video.oncontextmenu = (e) => { e.preventDefault(); sendRemoteClick(video, e, 'right'); };
   document.addEventListener('keydown', onRemoteKeyDown);
 }
 
 function closeRemoteControlModal() {
-  remoteOverlay.style.display = 'none';
-  if (remoteControlDeviceId) {
-    socket.emit('remote:stop', { deviceId: remoteControlDeviceId });
-  }
-  document.removeEventListener('keydown', onRemoteKeyDown);
-  remoteControlDeviceId = null;
+  exitFullscreenIfActive().finally(() => {
+    remoteOverlay.style.display = 'none';
+    if (remoteControlDeviceId) socket.emit('remote:stop', { deviceId: remoteControlDeviceId });
+    document.removeEventListener('keydown', onRemoteKeyDown);
+    remoteControlDeviceId = null;
+  });
 }
 
 function sendRemoteClick(video, e, button) {
@@ -625,16 +712,13 @@ function onRemoteKeyDown(e) {
   if (!remoteControlDeviceId) return;
   e.preventDefault();
   const text = KEY_MAP[e.key] || (e.key.length === 1 ? e.key : null);
-  if (text) {
-    socket.emit('remote:input', { deviceId: remoteControlDeviceId, input: { type: 'key', text } });
-  }
+  if (text) socket.emit('remote:input', { deviceId: remoteControlDeviceId, input: { type: 'key', text } });
 }
 
 // ---- History ----
 async function loadDeviceList() {
   const res = await fetch(`${SERVER_URL}/api/devices`, { headers: { 'x-api-key': API_KEY } });
   const devices = await res.json();
-
   deviceMeta = new Map(devices.map((d) => [d.device_id, {
     employeeName: d.employee_name,
     machineName: d.machine_name,
@@ -669,7 +753,6 @@ selectModeBtn.onclick = () => {
   selectModeBtn.classList.toggle('active', selectMode);
   document.getElementById('history-gallery').classList.toggle('select-mode', selectMode);
   if (!selectMode) {
-    // Leaving select mode clears any selection.
     selectedScreenshots.clear();
     document.querySelectorAll('.thumb.selected').forEach((t) => t.classList.remove('selected'));
     document.querySelectorAll('.thumb-check').forEach((cb) => { cb.checked = false; });
@@ -730,13 +813,10 @@ async function deleteOneScreenshot(id) {
       loadHistory();
       resolve(true);
     });
-    // If user cancels, the promise never resolves — acceptable for this UI,
-    // since the lightbox just stays open. We resolve false via the cancel hook.
     const origCancel = document.getElementById('confirm-popup-cancel').onclick;
     document.getElementById('confirm-popup-cancel').onclick = () => {
       closeConfirm();
       resolve(false);
-      // restore the standard cancel handler
       document.getElementById('confirm-popup-cancel').onclick = origCancel;
     };
   });
@@ -756,14 +836,13 @@ async function toggleOneVisibility(id, hidden) {
 const lightbox = document.getElementById('image-lightbox');
 let currentShots = [];
 let lightboxIndex = -1;
-let historyColumns = Number(localStorage.getItem('historyColumns')) || 8;
+let historyColumns = Number(localStorage.getItem('historyColumns')) || 12;
 
 document.getElementById('lightbox-close').onclick = () => { lightbox.style.display = 'none'; };
 lightbox.onclick = (e) => { if (e.target === lightbox) lightbox.style.display = 'none'; };
 document.getElementById('lightbox-prev').onclick = () => stepLightbox(-1);
 document.getElementById('lightbox-next').onclick = () => stepLightbox(1);
 
-// Keyboard arrows: no wrap-around.
 document.addEventListener('keydown', (e) => {
   if (lightbox.style.display !== 'flex') return;
   if (e.key === 'ArrowLeft')  { e.preventDefault(); stepLightbox(-1); }
@@ -802,12 +881,8 @@ function renderLightbox() {
   if (!shot) return;
   document.getElementById('lightbox-img').src = shot.url;
   document.getElementById('lightbox-caption').textContent = new Date(shot.capturedAt).toLocaleString();
-
-  const prevBtn = document.getElementById('lightbox-prev');
-  const nextBtn = document.getElementById('lightbox-next');
-  prevBtn.disabled = lightboxIndex === 0;
-  nextBtn.disabled = lightboxIndex === currentShots.length - 1;
-
+  document.getElementById('lightbox-prev').disabled = lightboxIndex === 0;
+  document.getElementById('lightbox-next').disabled = lightboxIndex === currentShots.length - 1;
   const hideBtn = document.getElementById('lightbox-hide-btn');
   hideBtn.textContent = shot.hidden ? 'Show to Team' : 'Hide from Team';
   hideBtn.onclick = async () => {
@@ -815,7 +890,6 @@ function renderLightbox() {
     shot.hidden = !shot.hidden;
     hideBtn.textContent = shot.hidden ? 'Show to Team' : 'Hide from Team';
   };
-
   document.getElementById('lightbox-delete-btn').onclick = async () => {
     const deleted = await deleteOneScreenshot(shot.id);
     if (deleted) lightbox.style.display = 'none';
@@ -839,7 +913,6 @@ async function loadHistory() {
     headers: { 'x-api-key': API_KEY },
   });
   const shots = await res.json();
-
   currentShots = shots.map((s) => ({
     id: s.id,
     url: `${SERVER_URL}/api/screenshot-image/${s.id}?apiKey=${API_KEY}`,
@@ -848,7 +921,6 @@ async function loadHistory() {
   }));
 
   const gallery = document.getElementById('history-gallery');
-
   if (currentShots.length === 0) {
     gallery.innerHTML = '<p style="color:#94a3b8;">No screenshots yet for this device.</p>';
     return;
@@ -876,14 +948,12 @@ async function loadHistory() {
       </div>`)
     .join('');
 
-  // Reapply select-mode class after re-render.
   if (selectMode) gallery.classList.add('select-mode');
 
   gallery.querySelectorAll('img[data-index]').forEach((img) => {
     img.onclick = (e) => {
       const id = img.dataset.id;
       const thumb = img.closest('.thumb');
-      // Ctrl/Cmd+click toggles selection and auto-enters select mode.
       if (e.ctrlKey || e.metaKey) {
         enterSelectModeIfNeeded();
         if (selectedScreenshots.has(id)) selectedScreenshots.delete(id);
@@ -891,7 +961,6 @@ async function loadHistory() {
         thumb.classList.toggle('selected', selectedScreenshots.has(id));
         thumb.querySelector('.select-shot').checked = selectedScreenshots.has(id);
       } else if (selectMode) {
-        // In select mode, a normal click toggles selection instead of opening.
         if (selectedScreenshots.has(id)) selectedScreenshots.delete(id);
         else selectedScreenshots.add(id);
         thumb.classList.toggle('selected', selectedScreenshots.has(id));

@@ -9,10 +9,10 @@
 </head>
 <body>
 
-  <!-- Password gate: basic deterrent only, not real server-side security -->
+  <!-- Password gate -->
   <div id="password-screen" class="password-screen">
     <div class="password-box">
-      <h2>SLogin</h2>
+      <h2>Super Admin Login</h2>
       <input id="password-input" type="password" placeholder="Password" autofocus />
       <button id="password-submit">Unlock</button>
       <p id="password-error" class="error-text" style="display:none">Incorrect password.</p>
@@ -22,10 +22,13 @@
   <div id="app" style="display:none">
     <header>
       <h1>Super Admin Dashboard</h1>
-      <div class="conn-status">
-        <span id="viewer-count" class="viewer-count-text"></span>
-        <span id="conn-dot" class="dot offline"></span>
-        <span id="conn-text">Connecting...</span>
+      <div class="header-right">
+        <div class="conn-status">
+          <span id="viewer-count" class="viewer-count-text"></span>
+          <span id="conn-dot" class="dot offline"></span>
+          <span id="conn-text">Connecting...</span>
+        </div>
+        <button id="logout-btn" class="logout-btn" title="Log out">Logout</button>
       </div>
     </header>
 
@@ -62,9 +65,9 @@
         <span>Columns:</span>
         <button class="col-btn" data-cols="4">4</button>
         <button class="col-btn" data-cols="6">6</button>
-        <button class="col-btn active" data-cols="8">8</button>
+        <button class="col-btn" data-cols="8">8</button>
         <button class="col-btn" data-cols="10">10</button>
-        <button class="col-btn" data-cols="12">12</button>
+        <button class="col-btn active" data-cols="12">12</button>
       </div>
       <div id="history-gallery"></div>
     </main>
@@ -75,24 +78,26 @@
     </main>
   </div>
 
-  <!-- Resizable focus view for one device -->
+  <!-- Focus view — header above video, hint below -->
   <div id="focus-overlay" class="focus-overlay" style="display:none">
     <div class="focus-modal" id="focus-modal">
       <div class="focus-header">
         <span id="focus-label"></span>
-        <div>
+        <div class="focus-header-actions">
           <button id="focus-prev">&larr; Prev</button>
           <button id="focus-next">Next &rarr;</button>
           <button id="focus-fullscreen">Fullscreen</button>
           <button id="focus-close" class="close-btn">Close</button>
         </div>
       </div>
-      <video id="focus-video" autoplay playsinline muted></video>
+      <div class="focus-body">
+        <video id="focus-video" autoplay playsinline muted></video>
+      </div>
       <div class="resize-hint">Drag bottom-right corner to resize</div>
     </div>
   </div>
 
-  <!-- Larger view for a single stored screenshot -->
+  <!-- Screenshot lightbox -->
   <div id="image-lightbox" class="lightbox" style="display:none">
     <button id="lightbox-close" class="lightbox-close close-btn">Close</button>
     <div class="lightbox-actions">
@@ -105,35 +110,41 @@
     <div id="lightbox-caption" class="lightbox-caption"></div>
   </div>
 
-  <!-- Remote control modal: mouse clicks and keyboard are forwarded live -->
+  <!-- Remote control modal — header/footer OUTSIDE the video -->
   <div id="remote-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal">
+    <div class="focus-modal" id="remote-modal">
       <div class="focus-header">
         <span id="remote-label"></span>
-        <div>
+        <div class="focus-header-actions">
+          <button id="remote-fullscreen">Fullscreen</button>
           <button id="remote-close" class="close-btn">Close</button>
         </div>
       </div>
-      <video id="remote-video" autoplay playsinline muted></video>
-      <div class="resize-hint">Click the video to click there. Type to send keystrokes to this laptop.</div>
+      <div class="focus-body">
+        <video id="remote-video" autoplay playsinline muted></video>
+      </div>
+      <div class="resize-hint">Click inside the video to click there. Type to send keystrokes. Press Esc to exit fullscreen.</div>
     </div>
   </div>
 
-  <!-- Camera/mic viewing modal -->
+  <!-- Camera/mic modal — header/footer OUTSIDE the video -->
   <div id="camera-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal">
+    <div class="focus-modal" id="camera-modal">
       <div class="focus-header">
         <span id="camera-label"></span>
-        <div>
+        <div class="focus-header-actions">
+          <button id="camera-fullscreen">Fullscreen</button>
           <button id="camera-close" class="close-btn">Close</button>
         </div>
       </div>
-      <video id="camera-video" autoplay playsinline></video>
-      <div class="resize-hint">This closes the camera/mic stream and clears the on-screen banner for the employee.</div>
+      <div class="focus-body">
+        <video id="camera-video" autoplay playsinline></video>
+      </div>
+      <div class="resize-hint" id="camera-hint">Move the mouse to see controls in fullscreen.</div>
     </div>
   </div>
 
-  <!-- Generic confirmation popup: Cancel is focused by default -->
+  <!-- Confirmation popup -->
   <div id="confirm-popup" class="password-screen" style="display:none; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);">
     <div class="password-box">
       <h2 id="confirm-popup-text">Are you sure?</h2>

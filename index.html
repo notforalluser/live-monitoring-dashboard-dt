@@ -12,26 +12,29 @@
 
   <div id="password-screen" class="password-screen">
     <div class="password-box">
-      <h2>Login</h2>
+      <h2><i class="fas fa-lock"></i> Login</h2>
       <input id="password-input" type="password" placeholder="Password" autofocus />
-      <button id="password-submit">Unlock</button>
+      <button id="password-submit"><i class="fas fa-unlock-alt"></i> Unlock</button>
       <p id="password-error" class="error-text" style="display:none">Incorrect password.</p>
     </div>
   </div>
 
   <div id="app" style="display:none">
     <header>
-      <h1>Team Dashboard</h1>
-      <div class="conn-status">
-        <span id="viewer-count" class="viewer-count-text"></span>
-        <span id="conn-dot" class="dot offline"></span>
-        <span id="conn-text">Connecting...</span>
+      <h1><i class="fas fa-desktop"></i> Dashboard</h1>
+      <div class="header-right">
+        <div class="conn-status">
+          <span id="viewer-count" class="viewer-count-text"></span>
+          <span id="conn-dot" class="dot offline"></span>
+          <span id="conn-text">Connecting...</span>
+        </div>
+        <button id="logout-btn" class="logout-btn" title="Log out"><i class="fas fa-sign-out-alt"></i> Logout</button>
       </div>
     </header>
 
     <nav id="tabs">
-      <button class="tab-btn active" data-tab="live">Live View</button>
-      <button class="tab-btn" data-tab="history">Screenshot History</button>
+      <button class="tab-btn active" data-tab="live"><i class="fas fa-video"></i> Live View</button>
+      <button class="tab-btn" data-tab="history"><i class="fas fa-images"></i> Screenshot History</button>
     </nav>
 
     <main id="live-tab" class="tab-panel">
@@ -45,10 +48,10 @@
     <main id="history-tab" class="tab-panel" style="display:none">
       <div class="history-controls" id="history-controls-wrap">
         <select id="device-select"></select>
-        <button id="refresh-history">Refresh</button>
+        <button id="refresh-history"><i class="fas fa-sync-alt"></i> <span>Refresh</span></button>
       </div>
       <div class="column-controls">
-        <span>Columns:</span>
+        <span><i class="fas fa-columns"></i> Columns:</span>
         <button class="col-btn" data-cols="4">4</button>
         <button class="col-btn" data-cols="6">6</button>
         <button class="col-btn active" data-cols="8">8</button>
@@ -60,45 +63,75 @@
     </main>
   </div>
 
-  <!-- Camera/mic viewing modal -->
+  <!-- Camera/mic viewing modal — camera and mic are independent -->
   <div id="camera-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal">
-      <div class="focus-header">
-        <span id="camera-label"></span>
-        <div><button id="camera-close" class="close-btn">Close</button></div>
-      </div>
+    <div class="focus-modal" id="camera-modal">
       <video id="camera-video" autoplay playsinline></video>
+      <div class="focus-ui">
+        <div class="focus-header">
+          <span id="camera-label"><i class="fas fa-camera"></i> Camera / Mic</span>
+          <div class="focus-header-actions">
+            <button id="camera-fullscreen" title="Fullscreen"><i class="fas fa-expand"></i> Fullscreen</button>
+            <button id="camera-close" class="close-btn" title="Close"><i class="fas fa-times"></i> Close</button>
+          </div>
+        </div>
+        <div class="resize-hint" id="camera-hint"><i class="fas fa-info-circle"></i> Move the mouse to show controls</div>
+      </div>
     </div>
   </div>
 
   <!-- Remote control modal -->
   <div id="remote-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal">
-      <div class="focus-header">
-        <span id="remote-label"></span>
-        <div><button id="remote-close" class="close-btn">Close</button></div>
-      </div>
+    <div class="focus-modal" id="remote-modal">
       <video id="remote-video" autoplay playsinline muted></video>
-      <div class="resize-hint">Click the video to click there. Type to send keystrokes to this laptop.</div>
+      <div class="focus-ui">
+        <div class="focus-header">
+          <span id="remote-label"><i class="fas fa-mouse-pointer"></i> Remote Control</span>
+          <div class="focus-header-actions">
+            <button id="remote-fullscreen" title="Fullscreen"><i class="fas fa-expand"></i> Fullscreen</button>
+            <button id="remote-close" class="close-btn" title="Close"><i class="fas fa-times"></i> Close</button>
+          </div>
+        </div>
+        <div class="resize-hint"><i class="fas fa-info-circle"></i> Click the video to click there · Type to send keystrokes</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Focus (live) modal -->
+  <div id="focus-overlay" class="focus-overlay" style="display:none">
+    <div class="focus-modal" id="focus-modal">
+      <video id="focus-video" autoplay playsinline muted></video>
+      <div class="focus-ui">
+        <div class="focus-header">
+          <span id="focus-label"><i class="fas fa-tv"></i> Live</span>
+          <div class="focus-header-actions">
+            <button id="focus-prev" title="Previous (←)"><i class="fas fa-chevron-left"></i> Prev</button>
+            <button id="focus-next" title="Next (→)">Next <i class="fas fa-chevron-right"></i></button>
+            <button id="focus-fullscreen" title="Toggle fullscreen"><i class="fas fa-expand"></i> Fullscreen</button>
+            <button id="focus-close" class="close-btn" title="Close"><i class="fas fa-times"></i> Close</button>
+          </div>
+        </div>
+        <div class="resize-hint"><i class="fas fa-arrows-alt"></i> Use ← / → to slide between devices</div>
+      </div>
     </div>
   </div>
 
   <!-- Larger view for a single stored screenshot -->
   <div id="image-lightbox" class="lightbox" style="display:none">
-    <button id="lightbox-close" class="lightbox-close close-btn">Close</button>
-    <button id="lightbox-prev" class="lightbox-nav lightbox-prev">&larr;</button>
+    <button id="lightbox-close" class="lightbox-close close-btn"><i class="fas fa-times"></i> Close</button>
+    <button id="lightbox-prev" class="lightbox-nav lightbox-prev"><i class="fas fa-chevron-left"></i></button>
     <img id="lightbox-img" />
-    <button id="lightbox-next" class="lightbox-nav lightbox-next">&rarr;</button>
+    <button id="lightbox-next" class="lightbox-nav lightbox-next"><i class="fas fa-chevron-right"></i></button>
     <div id="lightbox-caption" class="lightbox-caption"></div>
   </div>
 
-  <!-- Confirmation popup before turning something on or off -->
+  <!-- Confirmation popup -->
   <div id="confirm-popup" class="password-screen" style="display:none; background: rgba(0,0,0,0.3);">
     <div class="password-box">
       <h2 id="confirm-popup-text">Are you sure?</h2>
       <div style="display:flex; gap:8px;">
-        <button id="confirm-popup-cancel" style="flex:1; background:#9ca3af;">Cancel</button>
-        <button id="confirm-popup-ok" style="flex:1;">OK</button>
+        <button id="confirm-popup-cancel" class="secondary-btn" style="flex:1;"><i class="fas fa-times"></i> Cancel</button>
+        <button id="confirm-popup-ok" style="flex:1;"><i class="fas fa-check"></i> OK</button>
       </div>
     </div>
   </div>
