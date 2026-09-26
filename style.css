@@ -141,6 +141,32 @@ main { padding: 24px; }
 .dot.offline { background: #d1d5db; }
 
 .history-controls { display: flex; gap: 8px; margin-bottom: 16px; }
+.column-controls { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; font-size: 13px; color: #6b7280; }
+.col-btn { padding: 4px 12px; background: #eef1f6; color: #4b5563; }
+.col-btn.active { background: #3b6ef0; color: #fff; }
+
+.date-group { margin-bottom: 28px; }
+.date-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1c1f26;
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e2e6ee;
+}
+.date-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--history-cols, 8), 1fr);
+  gap: 8px;
+}
+.thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .danger-btn { background: #e5484d; }
 .danger-btn:hover { background: #d1373c; }
 .history-tile-controls {
@@ -154,6 +180,51 @@ main { padding: 24px; }
 .history-tile-controls button {
   padding: 3px 8px;
   font-size: 11px;
+}
+
+/* ---- Screenshot lightbox ---- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lightbox img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 6px;
+  cursor: default;
+}
+.lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+}
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 20px;
+  padding: 12px 16px;
+  background: rgba(255,255,255,0.15);
+}
+.lightbox-nav:hover { background: rgba(255,255,255,0.3); }
+.lightbox-prev { left: 24px; }
+.lightbox-next { right: 24px; }
+.lightbox-caption {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 13px;
+  background: rgba(0,0,0,0.4);
+  padding: 6px 14px;
+  border-radius: 999px;
 }
 
 /* ---- Live controls: checklist + size ---- */
@@ -237,7 +308,7 @@ main { padding: 24px; }
 }
 .sub-nav-btn.active { background: #3b6ef0; color: #fff; }
 
-/* ---- Resizable focus view (camera/mic + remote control modals) ---- */
+/* ---- Resizable focus view ---- */
 .focus-overlay {
   position: fixed;
   inset: 0;
@@ -284,35 +355,4 @@ main { padding: 24px; }
   text-align: right;
   padding: 2px 8px;
   background: #1c1f26;
-}
-
-/* ---- Unified media focus overlay (click-to-enlarge + fullscreen) ---- */
-#media-content-wrap {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #000;
-  overflow: hidden;
-}
-#media-video,
-#media-image {
-  max-width: 100%;
-  max-height: 100%;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-/* When the browser's real Fullscreen API is active on the modal,
-   let it fill the entire screen instead of the resizable 70vw/70vh box. */
-.focus-modal:fullscreen,
-.focus-modal:-webkit-full-screen {
-  width: 100vw;
-  height: 100vh;
-  max-width: 100vw;
-  max-height: 100vh;
-  border-radius: 0;
-  resize: none;
 }

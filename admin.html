@@ -54,8 +54,18 @@
         <select id="device-select"></select>
         <button id="refresh-history">Refresh</button>
         <button id="delete-selected-btn" class="danger-btn">Delete Selected</button>
+        <button id="hide-selected-btn">Hide Selected from Team</button>
+        <button id="unhide-selected-btn">Show Selected to Team</button>
       </div>
-      <div id="history-gallery" class="grid"></div>
+      <div class="column-controls">
+        <span>Columns:</span>
+        <button class="col-btn" data-cols="4">4</button>
+        <button class="col-btn" data-cols="6">6</button>
+        <button class="col-btn active" data-cols="8">8</button>
+        <button class="col-btn" data-cols="10">10</button>
+        <button class="col-btn" data-cols="12">12</button>
+      </div>
+      <div id="history-gallery"></div>
     </main>
 
     <main id="activity-tab" class="tab-panel" style="display:none">
@@ -84,6 +94,10 @@
   <!-- Larger view for a single stored screenshot -->
   <div id="image-lightbox" class="lightbox" style="display:none">
     <button id="lightbox-close" class="lightbox-close">Close</button>
+    <div class="lightbox-actions">
+      <button id="lightbox-hide-btn">Hide from Team</button>
+      <button id="lightbox-delete-btn" class="danger-btn">Delete</button>
+    </div>
     <button id="lightbox-prev" class="lightbox-nav lightbox-prev">&larr;</button>
     <img id="lightbox-img" />
     <button id="lightbox-next" class="lightbox-nav lightbox-next">&rarr;</button>

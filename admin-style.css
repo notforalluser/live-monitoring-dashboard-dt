@@ -114,6 +114,26 @@ main { padding: 24px; }
   overflow: hidden;
   border: 1px solid #e2e6ee;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  position: relative;
+}
+.tile.selected {
+  outline: 3px solid #3b6ef0;
+  outline-offset: -1px;
+}
+.tile.hidden-from-team {
+  border: 2px solid #f59e0b;
+}
+.hidden-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
 }
 .tile video, .tile img {
   width: 100%;
@@ -141,6 +161,62 @@ main { padding: 24px; }
 .dot.offline { background: #d1d5db; }
 
 .history-controls { display: flex; gap: 8px; margin-bottom: 16px; }
+.column-controls { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; font-size: 13px; color: #6b7280; }
+.col-btn { padding: 4px 12px; background: #eef1f6; color: #4b5563; }
+.col-btn.active { background: #3b6ef0; color: #fff; }
+
+.date-group { margin-bottom: 28px; }
+.date-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1c1f26;
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e2e6ee;
+}
+.date-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--history-cols, 8), 1fr);
+  gap: 8px;
+}
+.thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: zoom-in;
+  border: 2px solid transparent;
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb.selected { border-color: #3b6ef0; }
+.thumb.hidden-from-team { border-color: #f59e0b; }
+.thumb-check {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.hidden-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f59e0b;
+}
+
+.lightbox-actions {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  display: flex;
+  gap: 8px;
+}
 .danger-btn { background: #e5484d; }
 .danger-btn:hover { background: #d1373c; }
 .history-tile-controls {

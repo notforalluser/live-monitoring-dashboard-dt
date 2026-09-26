@@ -633,8 +633,23 @@ document.getElementById('delete-selected-btn').onclick = async () => {
   loadHistory();
 };
 
+async function setSelectedVisibility(hidden) {
+  if (selectedScreenshots.size === 0) return alert('No screenshots selected.');
+  await fetch(`${SERVER_URL}/api/screenshots/hide-many`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+    body: JSON.stringify({ ids: Array.from(selectedScreenshots), hidden }),
+  });
+  logActivity(`${hidden ? 'hid' : 'unhid'}_${selectedScreenshots.size}_screenshots_from_team`, document.getElementById('device-select').value);
+  selectedScreenshots.clear();
+  loadHistory();
+}
+
+document.getElementById('hide-selected-btn').onclick = () => setSelectedVisibility(true);
+document.getElementById('unhide-selected-btn').onclick = () => setSelectedVisibility(false);
+
 async function deleteOneScreenshot(id) {
-  if (!confirm('Delete this screenshot? This cannot be undone.')) return;
+  if (!confirm('Delete this screenshot? This cannot be undone.')) return false;
   await fetch(`${SERVER_URL}/api/screenshots/${id}`, {
     method: 'DELETE',
     headers: { 'x-api-key': API_KEY },
@@ -642,17 +657,41 @@ async function deleteOneScreenshot(id) {
   logActivity('deleted_screenshot', document.getElementById('device-select').value);
   selectedScreenshots.delete(id);
   loadHistory();
+  return true;
 }
 
-// ---- Screenshot lightbox (larger view of one stored screenshot, with Prev/Next) ----
+async function toggleOneVisibility(id, hidden) {
+  await fetch(`${SERVER_URL}/api/screenshots/${id}/visibility`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+    body: JSON.stringify({ hidden }),
+  });
+  logActivity(`${hidden ? 'hid' : 'unhid'}_screenshot_from_team`, document.getElementById('device-select').value);
+  loadHistory();
+}
+
+// ---- Screenshot lightbox (larger view, with Prev/Next and now Delete/Hide) ----
 const lightbox = document.getElementById('image-lightbox');
-let currentShots = []; // [{ url, capturedAt }] for the currently loaded device
+let currentShots = []; // flat, newest-first - index is shared with the date-grouped view
 let lightboxIndex = -1;
+let historyColumns = Number(localStorage.getItem('historyColumns')) || 8;
 
 document.getElementById('lightbox-close').onclick = () => { lightbox.style.display = 'none'; };
 lightbox.onclick = (e) => { if (e.target === lightbox) lightbox.style.display = 'none'; };
 document.getElementById('lightbox-prev').onclick = () => stepLightbox(-1);
 document.getElementById('lightbox-next').onclick = () => stepLightbox(1);
+
+document.querySelectorAll('.col-btn').forEach((btn) => {
+  if (Number(btn.dataset.cols) === historyColumns) btn.classList.add('active');
+  btn.onclick = () => {
+    document.querySelectorAll('.col-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    historyColumns = Number(btn.dataset.cols);
+    localStorage.setItem('historyColumns', historyColumns);
+    document.documentElement.style.setProperty('--history-cols', historyColumns);
+  };
+});
+document.documentElement.style.setProperty('--history-cols', historyColumns);
 
 function openLightbox(index) {
   lightboxIndex = index;
@@ -671,12 +710,35 @@ function renderLightbox() {
   if (!shot) return;
   document.getElementById('lightbox-img').src = shot.url;
   document.getElementById('lightbox-caption').textContent = new Date(shot.capturedAt).toLocaleString();
+  const hideBtn = document.getElementById('lightbox-hide-btn');
+  hideBtn.textContent = shot.hidden ? 'Show to Team' : 'Hide from Team';
+  hideBtn.onclick = async () => {
+    await toggleOneVisibility(shot.id, !shot.hidden);
+    shot.hidden = !shot.hidden; // keep the open lightbox in sync without a full reload
+    hideBtn.textContent = shot.hidden ? 'Show to Team' : 'Hide from Team';
+  };
+  document.getElementById('lightbox-delete-btn').onclick = async () => {
+    const deleted = await deleteOneScreenshot(shot.id); // confirms internally
+    if (deleted) lightbox.style.display = 'none';
+  };
+}
+
+function dateGroupLabel(date) {
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  if (sameDay(date, today)) return 'Today';
+  if (sameDay(date, yesterday)) return 'Yesterday';
+  return date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 async function loadHistory() {
   const deviceId = document.getElementById('device-select').value;
   if (!deviceId) return;
-  const res = await fetch(`${SERVER_URL}/api/screenshots/${deviceId}?limit=60`, {
+  // limit=all - the whole point of this view is browsing everything by
+  // date, like a phone gallery, not a small recent-only page.
+  const res = await fetch(`${SERVER_URL}/api/screenshots/${deviceId}?limit=all`, {
     headers: { 'x-api-key': API_KEY },
   });
   const shots = await res.json();
@@ -685,34 +747,60 @@ async function loadHistory() {
     id: s.id,
     url: `${SERVER_URL}/api/screenshot-image/${s.id}?apiKey=${API_KEY}`,
     capturedAt: s.captured_at,
+    hidden: s.hidden_from_team,
   }));
 
   const gallery = document.getElementById('history-gallery');
-  gallery.innerHTML = currentShots
-    .map(
-      (s, i) => `
-      <div class="tile">
-        <img src="${s.url}" loading="lazy" data-index="${i}" />
-        <div class="tile-label"><span>${new Date(s.capturedAt).toLocaleString()}</span></div>
-        <div class="history-tile-controls">
-          <label><input type="checkbox" class="select-shot" data-id="${s.id}" ${selectedScreenshots.has(s.id) ? 'checked' : ''}/> Select</label>
-          <button class="danger-btn del-one-btn" data-id="${s.id}" type="button">Delete</button>
+
+  if (currentShots.length === 0) {
+    gallery.innerHTML = '<p>No screenshots yet for this device.</p>';
+    return;
+  }
+
+  // Group into date buckets while preserving each shot's index into the
+  // flat currentShots array, since the lightbox's Prev/Next walks that
+  // flat, newest-first list regardless of which date group it renders in.
+  const groups = new Map(); // label -> [{shot, flatIndex}]
+  currentShots.forEach((shot, flatIndex) => {
+    const label = dateGroupLabel(new Date(shot.capturedAt));
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push({ shot, flatIndex });
+  });
+
+  gallery.innerHTML = Array.from(groups.entries())
+    .map(([label, items]) => `
+      <div class="date-group">
+        <h3 class="date-heading">${label}</h3>
+        <div class="date-grid">
+          ${items.map(({ shot, flatIndex }) => `
+            <div class="thumb ${shot.hidden ? 'hidden-from-team' : ''} ${selectedScreenshots.has(shot.id) ? 'selected' : ''}" data-id="${shot.id}">
+              ${shot.hidden ? '<span class="hidden-dot" title="Hidden from team"></span>' : ''}
+              <input type="checkbox" class="thumb-check select-shot" data-id="${shot.id}" ${selectedScreenshots.has(shot.id) ? 'checked' : ''} />
+              <img src="${shot.url}" loading="lazy" data-index="${flatIndex}" data-id="${shot.id}" />
+            </div>`).join('')}
         </div>
-      </div>`
-    )
+      </div>`)
     .join('');
-  if (currentShots.length === 0) gallery.innerHTML = '<p>No screenshots yet for this device.</p>';
 
   gallery.querySelectorAll('img[data-index]').forEach((img) => {
-    img.onclick = () => openLightbox(Number(img.dataset.index));
+    img.onclick = (e) => {
+      const id = img.dataset.id;
+      if (e.ctrlKey || e.metaKey) {
+        if (selectedScreenshots.has(id)) selectedScreenshots.delete(id);
+        else selectedScreenshots.add(id);
+        const thumb = img.closest('.thumb');
+        thumb.classList.toggle('selected', selectedScreenshots.has(id));
+        thumb.querySelector('.select-shot').checked = selectedScreenshots.has(id);
+      } else {
+        openLightbox(Number(img.dataset.index));
+      }
+    };
   });
   gallery.querySelectorAll('.select-shot').forEach((cb) => {
     cb.onchange = (e) => {
       if (e.target.checked) selectedScreenshots.add(cb.dataset.id);
       else selectedScreenshots.delete(cb.dataset.id);
+      cb.closest('.thumb').classList.toggle('selected', e.target.checked);
     };
-  });
-  gallery.querySelectorAll('.del-one-btn').forEach((btn) => {
-    btn.onclick = () => deleteOneScreenshot(btn.dataset.id);
   });
 }

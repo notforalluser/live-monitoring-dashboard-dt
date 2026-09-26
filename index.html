@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Dashboard</title>
+<title>Team Dashboard — Divine Talent</title>
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
 <script src="https://unpkg.com/simple-peer@9/simplepeer.min.js"></script>
@@ -11,7 +11,7 @@
 
   <div id="password-screen" class="password-screen">
     <div class="password-box">
-      <h2>Login</h2>
+      <h2>Team Login</h2>
       <input id="password-input" type="password" placeholder="Password" autofocus />
       <button id="password-submit">Unlock</button>
       <p id="password-error" class="error-text" style="display:none">Incorrect password.</p>
@@ -20,7 +20,7 @@
 
   <div id="app" style="display:none">
     <header>
-      <h1>Dashboard</h1>
+      <h1>Team Dashboard</h1>
       <div class="conn-status">
         <span id="viewer-count" class="viewer-count-text"></span>
         <span id="conn-dot" class="dot offline"></span>
@@ -35,8 +35,8 @@
 
     <main id="live-tab" class="tab-panel">
       <div class="sub-nav">
-        <button class="sub-nav-btn" data-group="standard">Standard Monitoring Only</button>
         <button class="sub-nav-btn active" data-group="granted">Extra Access Granted</button>
+        <button class="sub-nav-btn" data-group="standard">Standard Monitoring Only</button>
       </div>
       <div id="live-grid" class="grid"></div>
     </main>
@@ -50,7 +50,15 @@
         <select id="device-select"></select>
         <button id="refresh-history">Refresh</button>
       </div>
-      <div id="history-gallery" class="grid"></div>
+      <div class="column-controls">
+        <span>Columns:</span>
+        <button class="col-btn" data-cols="4">4</button>
+        <button class="col-btn" data-cols="6">6</button>
+        <button class="col-btn active" data-cols="8">8</button>
+        <button class="col-btn" data-cols="10">10</button>
+        <button class="col-btn" data-cols="12">12</button>
+      </div>
+      <div id="history-gallery"></div>
       <div id="no-access-list"></div>
     </main>
   </div>
@@ -78,25 +86,13 @@
     </div>
   </div>
 
-  <!-- Unified media focus overlay: opens for any live tile OR any history screenshot.
-       Supports: click-to-open popup, Fullscreen button, and Left/Right arrow-key
-       navigation that works identically in both the popup and true fullscreen. -->
-  <div id="media-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal" id="media-modal">
-      <div class="focus-header">
-        <span id="media-label"></span>
-        <div>
-          <button id="media-prev">&larr; Prev</button>
-          <button id="media-next">Next &rarr;</button>
-          <button id="media-fullscreen">Fullscreen</button>
-          <button id="media-close">Close</button>
-        </div>
-      </div>
-      <div id="media-content-wrap">
-        <video id="media-video" autoplay playsinline muted style="display:none;"></video>
-        <img id="media-image" style="display:none;" />
-      </div>
-    </div>
+  <!-- Larger view for a single stored screenshot -->
+  <div id="image-lightbox" class="lightbox" style="display:none">
+    <button id="lightbox-close" class="lightbox-close">Close</button>
+    <button id="lightbox-prev" class="lightbox-nav lightbox-prev">&larr;</button>
+    <img id="lightbox-img" />
+    <button id="lightbox-next" class="lightbox-nav lightbox-next">&rarr;</button>
+    <div id="lightbox-caption" class="lightbox-caption"></div>
   </div>
 
   <!-- Confirmation popup before turning something on or off -->
