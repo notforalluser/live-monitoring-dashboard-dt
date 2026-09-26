@@ -22,8 +22,9 @@ const cameraPeers = new Map();
 const cameraStreams = new Map();
 let deviceMeta = new Map();
 let currentDeviceIds = [];
-let liveGroup = 'granted';
-let historyGroup = 'granted';
+let liveGroup = 'standard';
+// History tab no longer has a sub-nav — always show granted-access devices.
+const historyGroup = 'granted';
 
 async function sha256Hex(text) {
   const data = new TextEncoder().encode(text);
@@ -102,14 +103,7 @@ document.querySelectorAll('[data-group]').forEach((btn) => {
   };
 });
 
-document.querySelectorAll('[data-hgroup]').forEach((btn) => {
-  btn.onclick = () => {
-    document.querySelectorAll('[data-hgroup]').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    historyGroup = btn.dataset.hgroup;
-    renderHistoryGroup();
-  };
-});
+// History sub-nav removed — no [data-hgroup] handlers needed.
 
 document.getElementById('refresh-history').onclick = loadHistory;
 document.getElementById('device-select').onchange = loadHistory;
@@ -142,7 +136,7 @@ function connectSocket() {
   socket.on('viewers:update', (viewers) => {
     const names = viewers.map((v) => v.name).join(', ') || 'none';
     document.getElementById('viewer-count').textContent =
-      `${viewers.length} member${viewers.length === 1 ? '' : 's'} active (${names})`;
+      `${viewers.length} member${viewers.length === 1 ? '' : 's'} active`;
   });
 
   socket.on('devices:update', (deviceIds) => {
@@ -430,28 +424,18 @@ function hasScreenshotAccess(deviceId) {
 
 function renderHistoryGroup() {
   const allIds = Array.from(deviceMeta.keys());
-  const filtered = allIds.filter((id) => historyGroup === 'granted' ? hasScreenshotAccess(id) : !hasScreenshotAccess(id));
+  const filtered = allIds.filter((id) => hasScreenshotAccess(id));
 
   const select = document.getElementById('device-select');
   const wrap = document.getElementById('history-controls-wrap');
-  const noAccessList = document.getElementById('no-access-list');
   const gallery = document.getElementById('history-gallery');
 
-  if (historyGroup === 'none') {
-    wrap.style.display = 'none';
-    gallery.innerHTML = '';
-    noAccessList.innerHTML = filtered.length
-      ? `<p>Screenshot access not shared with you for: ${filtered.map(labelFor).join(', ')}</p>`
-      : '<p>Everyone has screenshot access shared with you.</p>';
-    return;
-  }
-
   wrap.style.display = 'flex';
-  noAccessList.innerHTML = '';
   const previousValue = select.value;
   select.innerHTML = filtered.map((id) => `<option value="${id}">${labelFor(id)}</option>`).join('');
   if (filtered.includes(previousValue)) select.value = previousValue;
-  if (filtered.length) loadHistory(); else gallery.innerHTML = '<p>No employees with screenshot access shared yet.</p>';
+  if (filtered.length) loadHistory();
+  else gallery.innerHTML = '<p>No employees with screenshot access shared yet.</p>';
 }
 
 const lightbox = document.getElementById('image-lightbox');
@@ -463,6 +447,14 @@ document.getElementById('lightbox-close').onclick = () => { lightbox.style.displ
 lightbox.onclick = (e) => { if (e.target === lightbox) lightbox.style.display = 'none'; };
 document.getElementById('lightbox-prev').onclick = () => stepLightbox(-1);
 document.getElementById('lightbox-next').onclick = () => stepLightbox(1);
+
+// Keyboard arrows respect boundaries (no wrap-around).
+document.addEventListener('keydown', (e) => {
+  if (lightbox.style.display !== 'flex') return;
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); stepLightbox(-1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); stepLightbox(1);  }
+  if (e.key === 'Escape')     { lightbox.style.display = 'none'; }
+});
 
 document.querySelectorAll('.col-btn').forEach((btn) => {
   if (Number(btn.dataset.cols) === historyColumns) btn.classList.add('active');
@@ -481,16 +473,27 @@ function openLightbox(index) {
   renderLightbox();
   lightbox.style.display = 'flex';
 }
+
 function stepLightbox(delta) {
   if (currentShots.length === 0) return;
-  lightboxIndex = (lightboxIndex + delta + currentShots.length) % currentShots.length;
+  const next = lightboxIndex + delta;
+  // Clamp — do NOT wrap around. First image blocks Prev, last blocks Next.
+  if (next < 0 || next >= currentShots.length) return;
+  lightboxIndex = next;
   renderLightbox();
 }
+
 function renderLightbox() {
   const shot = currentShots[lightboxIndex];
   if (!shot) return;
   document.getElementById('lightbox-img').src = shot.url;
   document.getElementById('lightbox-caption').textContent = new Date(shot.capturedAt).toLocaleString();
+
+  // Disable arrows at the boundaries so it's obvious there's no loop.
+  const prevBtn = document.getElementById('lightbox-prev');
+  const nextBtn = document.getElementById('lightbox-next');
+  prevBtn.disabled = lightboxIndex === 0;
+  nextBtn.disabled = lightboxIndex === currentShots.length - 1;
 }
 
 function dateGroupLabel(date) {

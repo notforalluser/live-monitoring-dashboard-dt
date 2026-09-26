@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Team Dashboard — Divine Talent</title>
+<title>Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
 <script src="https://unpkg.com/simple-peer@9/simplepeer.min.js"></script>
@@ -11,7 +12,7 @@
 
   <div id="password-screen" class="password-screen">
     <div class="password-box">
-      <h2>Team Login</h2>
+      <h2>Login</h2>
       <input id="password-input" type="password" placeholder="Password" autofocus />
       <button id="password-submit">Unlock</button>
       <p id="password-error" class="error-text" style="display:none">Incorrect password.</p>
@@ -35,17 +36,13 @@
 
     <main id="live-tab" class="tab-panel">
       <div class="sub-nav">
-        <button class="sub-nav-btn active" data-group="granted">Extra Access Granted</button>
-        <button class="sub-nav-btn" data-group="standard">Standard Monitoring Only</button>
+        <button class="sub-nav-btn active" data-group="standard">Standard Monitoring Only</button>
+        <button class="sub-nav-btn" data-group="granted">With Camera/Mic Access</button>
       </div>
       <div id="live-grid" class="grid"></div>
     </main>
 
     <main id="history-tab" class="tab-panel" style="display:none">
-      <div class="sub-nav">
-        <button class="sub-nav-btn active" data-hgroup="granted">Screenshot Access Granted</button>
-        <button class="sub-nav-btn" data-hgroup="none">No Screenshot Access</button>
-      </div>
       <div class="history-controls" id="history-controls-wrap">
         <select id="device-select"></select>
         <button id="refresh-history">Refresh</button>
@@ -68,7 +65,7 @@
     <div class="focus-modal">
       <div class="focus-header">
         <span id="camera-label"></span>
-        <div><button id="camera-close">Close</button></div>
+        <div><button id="camera-close" class="close-btn">Close</button></div>
       </div>
       <video id="camera-video" autoplay playsinline></video>
     </div>
@@ -79,7 +76,7 @@
     <div class="focus-modal">
       <div class="focus-header">
         <span id="remote-label"></span>
-        <div><button id="remote-close">Close</button></div>
+        <div><button id="remote-close" class="close-btn">Close</button></div>
       </div>
       <video id="remote-video" autoplay playsinline muted></video>
       <div class="resize-hint">Click the video to click there. Type to send keystrokes to this laptop.</div>
@@ -88,7 +85,7 @@
 
   <!-- Larger view for a single stored screenshot -->
   <div id="image-lightbox" class="lightbox" style="display:none">
-    <button id="lightbox-close" class="lightbox-close">Close</button>
+    <button id="lightbox-close" class="lightbox-close close-btn">Close</button>
     <button id="lightbox-prev" class="lightbox-nav lightbox-prev">&larr;</button>
     <img id="lightbox-img" />
     <button id="lightbox-next" class="lightbox-nav lightbox-next">&rarr;</button>
