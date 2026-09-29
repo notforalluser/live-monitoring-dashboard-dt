@@ -1,10 +1,20 @@
 // ---- Baked-in connection details (no manual entry needed) ----
+// NOTE: since this is a static site with no backend of its own, anyone who
+// opens browser dev tools can read these values regardless of the password
+// screen below. Treat the password as a basic deterrent, not real security -
+// don't share this URL publicly, and rotate the API key if you ever suspect
+// it leaked.
 const SERVER_URL = 'https://live-capturing-d-ser.onrender.com';
 const API_KEY = '10e9b1c47f0a3cc6bde4cac621c4640444c4772ca37c8fac88c9f1fab467bcf2';
+
+// SHA-256 hash of the Super Admin password (not the password itself).
+// This page (admin.html) only ever accepts this one password.
 const PASSWORD_HASH = '6eb3748e9b511796ec5c0a36d816cdaf6ac425cf4c40a886e31084ab99c3519f';
 const VIEWER_NAME = 'Founder (Super Admin)';
 const VIEWER_ROLE = 'super_admin';
 
+// Same TURN relay as the agent - both sides need matching config for a
+// relayed connection to succeed.
 const ICE_SERVERS = [
   { urls: 'stun:stun.relay.metered.ca:80' },
   { urls: 'turn:global.relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
@@ -13,16 +23,15 @@ const ICE_SERVERS = [
 ];
 
 let socket = null;
-const peers = new Map();
-const streams = new Map();
-const cameraPeers = new Map();
-const cameraStreams = new Map();
+const peers = new Map(); // deviceId -> SimplePeer (screen)
+const streams = new Map(); // deviceId -> MediaStream (screen)
+const cameraPeers = new Map(); // deviceId -> SimplePeer (camera/mic)
+const cameraStreams = new Map(); // deviceId -> MediaStream (camera/mic)
 const selectedDevices = new Set();
 let showAll = true;
 let currentDeviceIds = [];
-let deviceMeta = new Map();
+let deviceMeta = new Map(); // deviceId -> { employeeName, machineName }
 let focusIndex = -1;
-let selectMode = false;
 
 // ---- Password gate ----
 async function sha256Hex(text) {
@@ -30,23 +39,6 @@ async function sha256Hex(text) {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
-
-function logout() {
-  sessionStorage.removeItem('unlocked');
-  exitFullscreenIfActive().finally(() => {
-    document.querySelectorAll('.focus-overlay, .lightbox').forEach((el) => { el.style.display = 'none'; });
-    document.getElementById('app').style.display = 'none';
-    document.getElementById('password-screen').style.display = 'flex';
-    document.getElementById('password-input').value = '';
-    document.getElementById('password-error').style.display = 'none';
-    document.getElementById('password-input').focus();
-    if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
-    peers.forEach((p) => { try { p.destroy(); } catch (e) {} });
-    cameraPeers.forEach((p) => { try { p.destroy(); } catch (e) {} });
-    peers.clear(); streams.clear(); cameraPeers.clear(); cameraStreams.clear();
-  });
-}
-document.getElementById('logout-btn').onclick = logout;
 
 async function tryUnlock() {
   const input = document.getElementById('password-input').value;
@@ -76,9 +68,8 @@ if (sessionStorage.getItem('unlocked') === 'true') {
 function startApp() {
   connectSocket();
   loadDeviceList();
-  setInterval(loadDeviceList, 15000);
+  setInterval(loadDeviceList, 15000); // keep employee-name labels fresh
 }
-
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
@@ -98,10 +89,16 @@ async function loadActivityLog() {
   renderActivityLog(logs);
 }
 
+document.getElementById('clear-activity-btn').onclick = async () => {
+  if (!confirm('Clear the entire activity log? This cannot be undone.')) return;
+  await fetch(`${SERVER_URL}/api/activity-log`, { method: 'DELETE', headers: { 'x-api-key': API_KEY } });
+  loadActivityLog();
+};
+
 function renderActivityLog(logs) {
   const list = document.getElementById('activity-log-list');
   if (logs.length === 0) {
-    list.innerHTML = '<p style="padding:20px;color:#94a3b8;">No activity recorded yet.</p>';
+    list.innerHTML = '<p>No activity recorded yet.</p>';
     return;
   }
   list.innerHTML = logs
@@ -115,23 +112,7 @@ function renderActivityLog(logs) {
     .join('');
 }
 
-async function handleRefresh() {
-  const btn = document.getElementById('refresh-history');
-  if (btn.classList.contains('loading')) return;
-  btn.classList.add('loading');
-  const original = btn.textContent;
-  btn.textContent = 'Refreshing…';
-  try {
-    await loadDeviceList();
-    await loadHistory();
-  } finally {
-    setTimeout(() => {
-      btn.classList.remove('loading');
-      btn.textContent = original;
-    }, 400);
-  }
-}
-document.getElementById('refresh-history').onclick = handleRefresh;
+document.getElementById('refresh-history').onclick = loadHistory;
 document.getElementById('device-select').onchange = loadHistory;
 
 document.getElementById('show-all-btn').onclick = () => {
@@ -142,18 +123,25 @@ document.getElementById('show-all-btn').onclick = () => {
   renderLiveGrid(currentDeviceIds);
 };
 
+// ---- Tile size controls ----
 document.querySelectorAll('.size-btn').forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll('.size-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     document.documentElement.style.setProperty('--tile-size', `${btn.dataset.size}px`);
-    if (btn.dataset.full === 'true') enterGridFullscreen();
+
+    if (btn.dataset.full === 'true') {
+      enterGridFullscreen();
+    }
   };
 });
 
 function enterGridFullscreen() {
   const grid = document.getElementById('live-grid');
   const videos = grid.querySelectorAll('video');
+  // If exactly one laptop is showing, go fullscreen on that video directly
+  // (true F11-style fullscreen); otherwise fullscreen the whole grid so all
+  // visible tiles fill the screen together.
   const target = videos.length === 1 ? videos[0] : grid;
   const request = target.requestFullscreen || target.webkitRequestFullscreen;
   if (request) request.call(target);
@@ -161,11 +149,14 @@ function enterGridFullscreen() {
 
 // ---- Focus overlay ----
 const overlay = document.getElementById('focus-overlay');
-const focusModal = document.getElementById('focus-modal');
 document.getElementById('focus-close').onclick = closeFocus;
 document.getElementById('focus-prev').onclick = () => stepFocus(-1);
 document.getElementById('focus-next').onclick = () => stepFocus(1);
-document.getElementById('focus-fullscreen').onclick = () => toggleFullscreen(focusModal);
+document.getElementById('focus-fullscreen').onclick = () => {
+  const video = document.getElementById('focus-video');
+  const request = video.requestFullscreen || video.webkitRequestFullscreen;
+  if (request) request.call(video);
+};
 
 function visibleDeviceIds() {
   return showAll ? currentDeviceIds : currentDeviceIds.filter((id) => selectedDevices.has(id));
@@ -183,23 +174,17 @@ function openFocus(deviceId) {
   focusIndex = list.indexOf(deviceId);
   renderFocus();
   overlay.style.display = 'flex';
-  document.addEventListener('keydown', onFocusKeyDown);
 }
 
 function closeFocus() {
-  exitFullscreenIfActive().finally(() => {
-    overlay.style.display = 'none';
-    focusIndex = -1;
-    document.removeEventListener('keydown', onFocusKeyDown);
-  });
+  overlay.style.display = 'none';
+  focusIndex = -1;
 }
 
 function stepFocus(delta) {
   const list = visibleDeviceIds();
   if (list.length === 0) return;
-  const next = focusIndex + delta;
-  if (next < 0 || next >= list.length) return;
-  focusIndex = next;
+  focusIndex = (focusIndex + delta + list.length) % list.length;
   renderFocus();
 }
 
@@ -209,45 +194,7 @@ function renderFocus() {
   if (!deviceId) return closeFocus();
   document.getElementById('focus-label').textContent = labelFor(deviceId);
   document.getElementById('focus-video').srcObject = streams.get(deviceId) || null;
-  document.getElementById('focus-prev').disabled = focusIndex === 0;
-  document.getElementById('focus-next').disabled = focusIndex === list.length - 1;
 }
-
-function onFocusKeyDown(e) {
-  if (overlay.style.display !== 'flex') return;
-  if (e.key === 'ArrowLeft')  { e.preventDefault(); stepFocus(-1); }
-  if (e.key === 'ArrowRight') { e.preventDefault(); stepFocus(1);  }
-  if (e.key === 'Escape') { if (!isFullscreen()) closeFocus(); }
-}
-
-// ---- Fullscreen helpers ----
-function isFullscreen() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
-}
-function exitFullscreenIfActive() {
-  return new Promise((resolve) => {
-    if (!isFullscreen()) return resolve();
-    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-    if (!exit) return resolve();
-    Promise.resolve(exit.call(document)).then(resolve).catch(resolve);
-  });
-}
-function toggleFullscreen(el) {
-  if (!isFullscreen()) {
-    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-    if (req) req.call(el);
-  } else {
-    exitFullscreenIfActive();
-  }
-}
-function updateFullscreenButtons() {
-  const isFs = isFullscreen();
-  document.querySelectorAll('#focus-fullscreen, #camera-fullscreen, #remote-fullscreen').forEach((btn) => {
-    btn.textContent = isFs ? 'Exit Fullscreen' : 'Fullscreen';
-  });
-}
-document.addEventListener('fullscreenchange', updateFullscreenButtons);
-document.addEventListener('webkitfullscreenchange', updateFullscreenButtons);
 
 // ---- Connection status dot ----
 function setConnStatus(online) {
@@ -260,7 +207,6 @@ function setConnStatus(online) {
 
 // ---- Live view ----
 function connectSocket() {
-  if (socket) return;
   socket = io(SERVER_URL, { auth: { apiKey: API_KEY } });
 
   socket.on('connect', () => {
@@ -305,7 +251,9 @@ function connectSocket() {
   });
 
   socket.on('remote:screen-info', ({ deviceId, width, height }) => {
-    if (deviceId === remoteControlDeviceId) remoteScreenSize = { width, height };
+    if (deviceId === remoteControlDeviceId) {
+      remoteScreenSize = { width, height };
+    }
   });
 }
 
@@ -328,22 +276,13 @@ function renderChecklist(deviceIds) {
   });
 }
 
-function toggleSwitchHTML(labelText, on, extraAttrs = '') {
-  return `
-    <button type="button" class="toggle-switch ${on ? 'on' : ''}" ${extraAttrs}>
-      <span class="switch-label">${labelText}</span>
-      <span class="switch-track"></span>
-      <span class="switch-state">${on ? 'ON' : 'OFF'}</span>
-    </button>`;
-}
-
 function renderLiveGrid(deviceIds) {
   const grid = document.getElementById('live-grid');
   grid.innerHTML = '';
   const visible = showAll ? deviceIds : deviceIds.filter((id) => selectedDevices.has(id));
 
   if (visible.length === 0) {
-    grid.innerHTML = '<p style="color:#94a3b8;">No agents currently online (or none selected).</p>';
+    grid.innerHTML = '<p>No agents currently online (or none selected).</p>';
     return;
   }
 
@@ -358,32 +297,11 @@ function renderLiveGrid(deviceIds) {
     const mv = meta.managerVisibility || { live: true, screenshot: true, camera: false, mic: false, remoteControl: false };
     const consent = meta.cameraMicConsent || 'pending';
     const consentBadge = consent === 'granted'
-      ? '<span class="status-on">Employee: Granted</span>'
+      ? '<span class="status-on">(Employee: Granted)</span>'
       : consent === 'declined'
-      ? '<span class="status-off">Employee: Declined</span>'
-      : '<span class="status-off">Employee: Pending</span>';
+      ? '<span class="status-off">(Employee: Declined)</span>'
+      : '<span class="status-off">(Employee: Pending)</span>';
     const consentBlocksAccess = consent !== 'granted';
-
-    // View button label adapts to what's actually granted
-    let viewBtnLabel = '';
-    let viewBtnDisabled = true;
-    let viewBtnTitle = '';
-    if (consentBlocksAccess) {
-      viewBtnLabel = 'Awaiting Consent';
-      viewBtnTitle = 'Requires employee consent';
-    } else if (cameraOn && micOn) {
-      viewBtnLabel = 'View Camera / Listen Mic';
-      viewBtnDisabled = false;
-    } else if (cameraOn) {
-      viewBtnLabel = 'View Camera';
-      viewBtnDisabled = false;
-    } else if (micOn) {
-      viewBtnLabel = 'Listen Mic';
-      viewBtnDisabled = false;
-    } else {
-      viewBtnLabel = 'View Camera / Listen Mic';
-      viewBtnTitle = 'Turn Camera or Mic on first';
-    }
 
     const tile = document.createElement('div');
     tile.className = 'tile';
@@ -391,44 +309,42 @@ function renderLiveGrid(deviceIds) {
       <video autoplay playsinline muted></video>
       <div class="tile-label">
         <span><span class="dot online"></span>${labelFor(deviceId)}</span>
-        <button class="rename-btn" type="button">Rename</button>
+        <button class="rename-btn" type="button" style="padding:2px 8px;font-size:11px;">Rename</button>
       </div>
-
       <div class="device-settings-row">
-        ${toggleSwitchHTML('Live', liveOn)}
-        ${toggleSwitchHTML('Shots', shotsOn)}
+        <span class="status-text">Live: <b class="${liveOn ? 'status-on' : 'status-off'}">${liveOn ? 'ON' : 'OFF'}</b></span>
+        <button class="toggle-live-btn" type="button">${liveOn ? 'Turn Off' : 'Turn On'}</button>
+        <span class="status-text">Shots: <b class="${shotsOn ? 'status-on' : 'status-off'}">${shotsOn ? 'ON' : 'OFF'}</b></span>
+        <button class="toggle-shots-btn" type="button">${shotsOn ? 'Turn Off' : 'Turn On'}</button>
       </div>
-
       <div class="device-settings-row">
-        <span class="settings-label">Interval</span>
         <input type="number" class="interval-input" min="5" value="${interval}" title="Screenshot interval (seconds)" />
-        <span class="status-text">sec</span>
+        <span class="status-text">sec interval</span>
         <button class="save-interval-btn" type="button">Set</button>
       </div>
-
       <div class="device-settings-row">
-        ${toggleSwitchHTML('Camera', cameraOn, consentBlocksAccess ? 'disabled' : '')}
-        ${toggleSwitchHTML('Mic', micOn, consentBlocksAccess ? 'disabled' : '')}
+        <span class="status-text">Camera: <b class="${cameraOn ? 'status-on' : 'status-off'}">${cameraOn ? 'ON' : 'OFF'}</b></span>
+        <button class="toggle-camera-btn" type="button" ${consentBlocksAccess ? 'disabled' : ''}>${cameraOn ? 'Turn Off' : 'Turn On'}</button>
+        <span class="status-text">Mic: <b class="${micOn ? 'status-on' : 'status-off'}">${micOn ? 'ON' : 'OFF'}</b></span>
+        <button class="toggle-mic-btn" type="button" ${consentBlocksAccess ? 'disabled' : ''}>${micOn ? 'Turn Off' : 'Turn On'}</button>
       </div>
-
       <div class="device-settings-row">
-        <span class="status-text">Consent: ${consentBadge}</span>
+        <span class="status-text">${consentBadge}</span>
       </div>
-
       <div class="device-settings-row">
-        <button class="view-camera-btn" type="button" ${viewBtnDisabled ? `disabled title="${viewBtnTitle}"` : ''}>${viewBtnLabel}</button>
+        <button class="view-camera-btn" type="button" ${(!cameraOn && !micOn) || consentBlocksAccess ? 'disabled title="Requires employee consent + admin permission"' : ''}>View Camera / Listen Mic</button>
       </div>
-
       <div class="device-settings-row">
-        ${toggleSwitchHTML('Remote', remoteOn)}
+        <span class="status-text">Remote Control: <b class="${remoteOn ? 'status-on' : 'status-off'}">${remoteOn ? 'ON' : 'OFF'}</b></span>
+        <button class="toggle-remote-btn" type="button">${remoteOn ? 'Turn Off' : 'Turn On'}</button>
       </div>
-
       <div class="device-settings-row">
         <button class="start-remote-btn" type="button" ${!remoteOn ? 'disabled title="Turn Remote Control on first"' : ''}>Start Remote Control</button>
       </div>
-
       <div class="device-settings-row manager-visibility-row">
-        <span class="mv-label">Team Dashboard access for this employee</span>
+        <span class="status-text" style="width:100%;font-weight:600;">Team Dashboard access for this employee:</span>
+      </div>
+      <div class="device-settings-row manager-visibility-row">
         <label class="mv-check"><input type="checkbox" class="mv-live" ${mv.live ? 'checked' : ''}/> Live</label>
         <label class="mv-check"><input type="checkbox" class="mv-screenshot" ${mv.screenshot ? 'checked' : ''}/> Screenshot</label>
         <label class="mv-check"><input type="checkbox" class="mv-camera" ${mv.camera ? 'checked' : ''}/> Camera</label>
@@ -440,18 +356,11 @@ function renderLiveGrid(deviceIds) {
     const video = tile.querySelector('video');
     video.onclick = () => openFocus(deviceId);
     tile.querySelector('.rename-btn').onclick = () => renameDevice(deviceId);
-
-    const [liveBtn, shotsBtn] = tile.querySelectorAll('.device-settings-row')[0].querySelectorAll('.toggle-switch');
-    liveBtn.onclick = () => confirmToggle(deviceId, 'liveEnabled', liveOn, 'Live Monitoring');
-    shotsBtn.onclick = () => confirmToggle(deviceId, 'screenshotEnabled', shotsOn, 'Screenshot Capture');
-
-    const [camBtn, micBtn] = tile.querySelectorAll('.device-settings-row')[2].querySelectorAll('.toggle-switch');
-    camBtn.onclick = () => confirmToggle(deviceId, 'cameraEnabled', cameraOn, 'Camera Access');
-    micBtn.onclick = () => confirmToggle(deviceId, 'micEnabled', micOn, 'Microphone Access');
-
-    const remoteBtn = tile.querySelectorAll('.device-settings-row')[5].querySelector('.toggle-switch');
-    remoteBtn.onclick = () => confirmToggle(deviceId, 'remoteControlEnabled', remoteOn, 'Remote Control');
-
+    tile.querySelector('.toggle-live-btn').onclick = () => confirmToggle(deviceId, 'liveEnabled', liveOn, 'Live Monitoring');
+    tile.querySelector('.toggle-shots-btn').onclick = () => confirmToggle(deviceId, 'screenshotEnabled', shotsOn, 'Screenshot Capture');
+    tile.querySelector('.toggle-camera-btn').onclick = () => confirmToggle(deviceId, 'cameraEnabled', cameraOn, 'Camera Access');
+    tile.querySelector('.toggle-mic-btn').onclick = () => confirmToggle(deviceId, 'micEnabled', micOn, 'Microphone Access');
+    tile.querySelector('.toggle-remote-btn').onclick = () => confirmToggle(deviceId, 'remoteControlEnabled', remoteOn, 'Remote Control');
     tile.querySelector('.view-camera-btn').onclick = () => openCameraModal(deviceId);
     tile.querySelector('.start-remote-btn').onclick = () => openRemoteControlModal(deviceId);
     tile.querySelector('.mv-live').onchange = (e) => updateManagerVisibility(deviceId, 'live', e.target.checked);
@@ -461,21 +370,18 @@ function renderLiveGrid(deviceIds) {
     tile.querySelector('.mv-remote').onchange = (e) => updateManagerVisibility(deviceId, 'remoteControl', e.target.checked);
     tile.querySelector('.save-interval-btn').onclick = () => {
       const seconds = Number(tile.querySelector('.interval-input').value);
-      if (!seconds || seconds < 5) return showAlert('Enter at least 5 seconds.');
+      if (!seconds || seconds < 5) return alert('Enter at least 5 seconds.');
       toggleDeviceSetting(deviceId, 'screenshotIntervalSeconds', seconds);
     };
     watchDevice(deviceId, video);
   });
 }
 
-function logActivity(action, deviceId) {
-  if (!socket) return;
-  socket.emit('activity:log', {
-    action,
-    deviceId: deviceId || null,
-    deviceLabel: deviceId ? labelFor(deviceId) : null,
-  });
-}
+// Note: admin's own actions are intentionally NOT logged here - the
+// Activity Log tab is meant to show what the TEAM does, not the admin's
+// own settings changes. Team-side actions log themselves from member-app.js;
+// device online/offline and member online/offline are logged automatically
+// by the server itself.
 
 async function toggleDeviceSetting(deviceId, key, value) {
   await fetch(`${SERVER_URL}/api/devices/${deviceId}/settings`, {
@@ -483,7 +389,6 @@ async function toggleDeviceSetting(deviceId, key, value) {
     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
     body: JSON.stringify({ [key]: value }),
   });
-  logActivity(`${value ? 'enabled' : 'disabled'}_${key}`, deviceId);
   await loadDeviceList();
   renderLiveGrid(currentDeviceIds);
 }
@@ -494,68 +399,40 @@ async function updateManagerVisibility(deviceId, key, value) {
     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
     body: JSON.stringify({ [key]: value }),
   });
-  logActivity(`${value ? 'granted' : 'revoked'}_team_access_${key}`, deviceId);
   await loadDeviceList();
 }
 
-// ---- Confirmation popup ----
+// ---- Confirm popup before turning a setting off/on ----
 const confirmPopup = document.getElementById('confirm-popup');
 let pendingConfirmAction = null;
 
-function showConfirm(message, onConfirm, opts = {}) {
-  document.getElementById('confirm-popup-text').textContent = message;
-  const okBtn = document.getElementById('confirm-popup-ok');
-  const cancelBtn = document.getElementById('confirm-popup-cancel');
-  okBtn.textContent = opts.confirmText || 'Yes, Confirm';
-  okBtn.classList.toggle('danger-btn', opts.danger !== false);
-  okBtn.classList.toggle('secondary-btn', opts.danger === false);
-  pendingConfirmAction = onConfirm;
+function confirmToggle(deviceId, key, currentlyOn, label) {
+  const action = currentlyOn ? 'Turn OFF' : 'Turn ON';
+  document.getElementById('confirm-popup-text').textContent =
+    `${action} ${label} for ${labelFor(deviceId)}?`;
+  pendingConfirmAction = () => toggleDeviceSetting(deviceId, key, !currentlyOn);
   confirmPopup.style.display = 'flex';
-  cancelBtn.focus();
-}
-
-function closeConfirm() {
-  confirmPopup.style.display = 'none';
-  pendingConfirmAction = null;
 }
 
 document.getElementById('confirm-popup-ok').onclick = () => {
-  const action = pendingConfirmAction;
-  closeConfirm();
-  if (action) action();
+  confirmPopup.style.display = 'none';
+  if (pendingConfirmAction) pendingConfirmAction();
+  pendingConfirmAction = null;
 };
-document.getElementById('confirm-popup-cancel').onclick = closeConfirm;
-
-function showAlert(message) {
-  document.getElementById('confirm-popup-text').textContent = message;
-  const okBtn = document.getElementById('confirm-popup-ok');
-  const cancelBtn = document.getElementById('confirm-popup-cancel');
-  okBtn.textContent = 'OK';
-  okBtn.classList.add('secondary-btn');
-  okBtn.classList.remove('danger-btn');
-  cancelBtn.style.display = 'none';
-  pendingConfirmAction = () => { cancelBtn.style.display = ''; };
-  confirmPopup.style.display = 'flex';
-  okBtn.focus();
-}
-
-function confirmToggle(deviceId, key, currentlyOn, label) {
-  const action = currentlyOn ? 'Turn OFF' : 'Turn ON';
-  showConfirm(`${action} ${label} for ${labelFor(deviceId)}?`, () => {
-    toggleDeviceSetting(deviceId, key, !currentlyOn);
-  });
-}
+document.getElementById('confirm-popup-cancel').onclick = () => {
+  confirmPopup.style.display = 'none';
+  pendingConfirmAction = null;
+};
 
 async function renameDevice(deviceId) {
   const current = deviceMeta.get(deviceId)?.employeeName || '';
   const name = prompt('Employee name for this device:', current);
-  if (name === null) return;
+  if (name === null) return; // cancelled
   await fetch(`${SERVER_URL}/api/devices/${deviceId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
     body: JSON.stringify({ employeeName: name }),
   });
-  logActivity('renamed_device', deviceId);
   await loadDeviceList();
   renderLiveGrid(currentDeviceIds);
 }
@@ -565,12 +442,15 @@ function watchDevice(deviceId, videoEl) {
     if (streams.has(deviceId)) videoEl.srcObject = streams.get(deviceId);
     return;
   }
+
   const peer = new SimplePeer({ initiator: false, trickle: true, config: { iceServers: ICE_SERVERS } });
   peers.set(deviceId, peer);
+
   peer.on('signal', (data) => {
     if (!peer.fromId) return;
     socket.emit('signal', { to: peer.fromId, data, deviceId, kind: 'screen' });
   });
+
   peer.on('stream', (stream) => {
     streams.set(deviceId, stream);
     videoEl.srcObject = stream;
@@ -578,58 +458,37 @@ function watchDevice(deviceId, videoEl) {
       document.getElementById('focus-video').srcObject = stream;
     }
   });
+
   peer.on('close', () => {
     peers.delete(deviceId);
     streams.delete(deviceId);
   });
+
   socket.emit('viewer:watch', { deviceId, kind: 'screen' });
 }
 
-// ============================================================
-// Camera/mic viewing — camera and mic are INDEPENDENT
-// ============================================================
+// ---- Camera/mic viewing ----
 const cameraOverlay = document.getElementById('camera-overlay');
-const cameraModal = document.getElementById('camera-modal');
 let activeCameraDeviceId = null;
 
 document.getElementById('camera-close').onclick = closeCameraModal;
-document.getElementById('camera-fullscreen').onclick = () => toggleFullscreen(cameraModal);
 
 function openCameraModal(deviceId) {
   activeCameraDeviceId = deviceId;
-  const meta = deviceMeta.get(deviceId) || {};
-  const camOn = meta.cameraEnabled === true;
-  const micOn = meta.micEnabled === true;
-
-  let labelText = '';
-  if (camOn && micOn) labelText = `${labelFor(deviceId)} — Camera & Mic`;
-  else if (camOn)      labelText = `${labelFor(deviceId)} — Camera`;
-  else if (micOn)      labelText = `${labelFor(deviceId)} — Microphone`;
-  else                 labelText = `${labelFor(deviceId)} — No Camera/Mic`;
-  document.getElementById('camera-label').textContent = labelText;
-
-  const hint = document.getElementById('camera-hint');
-  if (camOn && micOn) hint.textContent = 'Camera and microphone stream. Press Esc to exit fullscreen.';
-  else if (camOn)     hint.textContent = 'Camera-only stream. Press Esc to exit fullscreen.';
-  else if (micOn)     hint.textContent = 'Microphone-only stream. Press Esc to exit fullscreen.';
-  else                hint.textContent = 'Nothing shared.';
-
+  document.getElementById('camera-label').textContent = `${labelFor(deviceId)} — Camera/Mic`;
   document.getElementById('camera-video').srcObject = cameraStreams.get(deviceId) || null;
   cameraOverlay.style.display = 'flex';
   watchCameraDevice(deviceId);
-  logActivity(camOn && micOn ? 'viewed_camera_mic' : camOn ? 'viewed_camera' : micOn ? 'listened_mic' : 'viewed_nothing', deviceId);
 }
 
 function closeCameraModal() {
-  exitFullscreenIfActive().finally(() => {
-    cameraOverlay.style.display = 'none';
-    if (activeCameraDeviceId && cameraPeers.has(activeCameraDeviceId)) {
-      cameraPeers.get(activeCameraDeviceId).destroy();
-      cameraPeers.delete(activeCameraDeviceId);
-      cameraStreams.delete(activeCameraDeviceId);
-    }
-    activeCameraDeviceId = null;
-  });
+  cameraOverlay.style.display = 'none';
+  if (activeCameraDeviceId && cameraPeers.has(activeCameraDeviceId)) {
+    cameraPeers.get(activeCameraDeviceId).destroy();
+    cameraPeers.delete(activeCameraDeviceId);
+    cameraStreams.delete(activeCameraDeviceId);
+  }
+  activeCameraDeviceId = null;
 }
 
 function watchCameraDevice(deviceId) {
@@ -638,63 +497,72 @@ function watchCameraDevice(deviceId) {
     if (existing) document.getElementById('camera-video').srcObject = existing;
     return;
   }
+
   const peer = new SimplePeer({ initiator: false, trickle: true, config: { iceServers: ICE_SERVERS } });
   cameraPeers.set(deviceId, peer);
+
   peer.on('signal', (data) => {
     if (!peer.fromId) return;
     socket.emit('signal', { to: peer.fromId, data, deviceId, kind: 'camera' });
   });
+
   peer.on('stream', (stream) => {
     cameraStreams.set(deviceId, stream);
-    if (activeCameraDeviceId === deviceId) document.getElementById('camera-video').srcObject = stream;
+    if (activeCameraDeviceId === deviceId) {
+      document.getElementById('camera-video').srcObject = stream;
+    }
   });
+
   peer.on('close', () => {
     cameraPeers.delete(deviceId);
     cameraStreams.delete(deviceId);
   });
+
   socket.emit('viewer:watch', { deviceId, kind: 'camera' });
 }
 
-// ============================================================
-// Remote control — header & hint are OUTSIDE the video, so the
-// entire controlled screen area is clickable. In fullscreen the
-// header/hint are hidden completely (CSS handles it) — press Esc
-// to exit fullscreen and get the buttons back.
-// ============================================================
+// ---- Remote control (mouse/keyboard) ----
 const remoteOverlay = document.getElementById('remote-overlay');
-const remoteModal = document.getElementById('remote-modal');
 let remoteControlDeviceId = null;
-let remoteScreenSize = { width: 1920, height: 1080 };
+let remoteScreenSize = { width: 1920, height: 1080 }; // fallback until agent reports real size
 
 document.getElementById('remote-close').onclick = closeRemoteControlModal;
-document.getElementById('remote-fullscreen').onclick = () => toggleFullscreen(remoteModal);
 
 function openRemoteControlModal(deviceId) {
   remoteControlDeviceId = deviceId;
   document.getElementById('remote-label').textContent = `${labelFor(deviceId)} — Remote Control`;
+
   const video = document.getElementById('remote-video');
-  video.srcObject = streams.get(deviceId) || null;
+  video.srcObject = streams.get(deviceId) || null; // reuse the screen stream if already watching
   remoteOverlay.style.display = 'flex';
-  watchDevice(deviceId, video);
+  watchDevice(deviceId, video); // ensures the screen peer exists and feeds this video too
+
   socket.emit('remote:start', { deviceId });
-  logActivity('started_remote_control', deviceId);
+
   video.onclick = (e) => sendRemoteClick(video, e, 'left');
-  video.oncontextmenu = (e) => { e.preventDefault(); sendRemoteClick(video, e, 'right'); };
+  video.oncontextmenu = (e) => {
+    e.preventDefault();
+    sendRemoteClick(video, e, 'right');
+  };
   document.addEventListener('keydown', onRemoteKeyDown);
 }
 
 function closeRemoteControlModal() {
-  exitFullscreenIfActive().finally(() => {
-    remoteOverlay.style.display = 'none';
-    if (remoteControlDeviceId) socket.emit('remote:stop', { deviceId: remoteControlDeviceId });
-    document.removeEventListener('keydown', onRemoteKeyDown);
-    remoteControlDeviceId = null;
-  });
+  remoteOverlay.style.display = 'none';
+  if (remoteControlDeviceId) {
+    socket.emit('remote:stop', { deviceId: remoteControlDeviceId });
+  }
+  document.removeEventListener('keydown', onRemoteKeyDown);
+  remoteControlDeviceId = null;
 }
 
 function sendRemoteClick(video, e, button) {
   if (!remoteControlDeviceId) return;
   const rect = video.getBoundingClientRect();
+  // Proportional scaling from the displayed video size to the laptop's
+  // real screen resolution. Note: if the video letterboxes (aspect ratio
+  // mismatch), clicks very near the edges may be slightly off - a known
+  // limitation of this first version.
   const scaleX = remoteScreenSize.width / rect.width;
   const scaleY = remoteScreenSize.height / rect.height;
   const x = (e.clientX - rect.left) * scaleX;
@@ -712,13 +580,16 @@ function onRemoteKeyDown(e) {
   if (!remoteControlDeviceId) return;
   e.preventDefault();
   const text = KEY_MAP[e.key] || (e.key.length === 1 ? e.key : null);
-  if (text) socket.emit('remote:input', { deviceId: remoteControlDeviceId, input: { type: 'key', text } });
+  if (text) {
+    socket.emit('remote:input', { deviceId: remoteControlDeviceId, input: { type: 'key', text } });
+  }
 }
 
 // ---- History ----
 async function loadDeviceList() {
   const res = await fetch(`${SERVER_URL}/api/devices`, { headers: { 'x-api-key': API_KEY } });
   const devices = await res.json();
+
   deviceMeta = new Map(devices.map((d) => [d.device_id, {
     employeeName: d.employee_name,
     machineName: d.machine_name,
@@ -739,87 +610,48 @@ async function loadDeviceList() {
     .join('');
   if (devices.some((d) => d.device_id === previousValue)) select.value = previousValue;
 
-  if (currentDeviceIds.length) renderLiveGrid(currentDeviceIds);
+  if (currentDeviceIds.length) renderLiveGrid(currentDeviceIds); // refresh labels
   if (devices.length && document.getElementById('history-tab').style.display !== 'none') loadHistory();
 }
 
-// ---- Select mode ----
 const selectedScreenshots = new Set();
-const selectModeBtn = document.getElementById('select-mode-btn');
 
-selectModeBtn.onclick = () => {
-  selectMode = !selectMode;
-  selectModeBtn.textContent = selectMode ? 'Unselect' : 'Select';
-  selectModeBtn.classList.toggle('active', selectMode);
-  document.getElementById('history-gallery').classList.toggle('select-mode', selectMode);
-  if (!selectMode) {
-    selectedScreenshots.clear();
-    document.querySelectorAll('.thumb.selected').forEach((t) => t.classList.remove('selected'));
-    document.querySelectorAll('.thumb-check').forEach((cb) => { cb.checked = false; });
-  }
-};
+document.getElementById('delete-selected-btn').onclick = async () => {
+  if (selectedScreenshots.size === 0) return alert('No screenshots selected.');
+  if (!confirm(`Delete ${selectedScreenshots.size} selected screenshot(s)? This cannot be undone.`)) return;
 
-function enterSelectModeIfNeeded() {
-  if (!selectMode) {
-    selectMode = true;
-    selectModeBtn.textContent = 'Unselect';
-    selectModeBtn.classList.add('active');
-    document.getElementById('history-gallery').classList.add('select-mode');
-  }
-}
-
-// ---- Confirmed actions ----
-document.getElementById('delete-selected-btn').onclick = () => {
-  if (selectedScreenshots.size === 0) return showAlert('No screenshots selected.');
-  showConfirm(`Delete ${selectedScreenshots.size} selected screenshot(s)? This cannot be undone.`, async () => {
-    await fetch(`${SERVER_URL}/api/screenshots/delete-many`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ ids: Array.from(selectedScreenshots) }),
-    });
-    logActivity(`deleted_${selectedScreenshots.size}_screenshots`, document.getElementById('device-select').value);
-    selectedScreenshots.clear();
-    loadHistory();
+  await fetch(`${SERVER_URL}/api/screenshots/delete-many`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+    body: JSON.stringify({ ids: Array.from(selectedScreenshots) }),
   });
+  selectedScreenshots.clear();
+  loadHistory();
 };
 
 async function setSelectedVisibility(hidden) {
-  if (selectedScreenshots.size === 0) return showAlert('No screenshots selected.');
-  const verb = hidden ? 'Hide' : 'Show';
-  showConfirm(`${verb} ${selectedScreenshots.size} selected screenshot(s) ${hidden ? 'from' : 'to'} the team?`, async () => {
-    await fetch(`${SERVER_URL}/api/screenshots/hide-many`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ ids: Array.from(selectedScreenshots), hidden }),
-    });
-    logActivity(`${hidden ? 'hid' : 'unhid'}_${selectedScreenshots.size}_screenshots_from_team`, document.getElementById('device-select').value);
-    selectedScreenshots.clear();
-    loadHistory();
-  }, { danger: false });
+  if (selectedScreenshots.size === 0) return alert('No screenshots selected.');
+  await fetch(`${SERVER_URL}/api/screenshots/hide-many`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+    body: JSON.stringify({ ids: Array.from(selectedScreenshots), hidden }),
+  });
+  selectedScreenshots.clear();
+  loadHistory();
 }
 
 document.getElementById('hide-selected-btn').onclick = () => setSelectedVisibility(true);
 document.getElementById('unhide-selected-btn').onclick = () => setSelectedVisibility(false);
 
 async function deleteOneScreenshot(id) {
-  return new Promise((resolve) => {
-    showConfirm('Delete this screenshot? This cannot be undone.', async () => {
-      await fetch(`${SERVER_URL}/api/screenshots/${id}`, {
-        method: 'DELETE',
-        headers: { 'x-api-key': API_KEY },
-      });
-      logActivity('deleted_screenshot', document.getElementById('device-select').value);
-      selectedScreenshots.delete(id);
-      loadHistory();
-      resolve(true);
-    });
-    const origCancel = document.getElementById('confirm-popup-cancel').onclick;
-    document.getElementById('confirm-popup-cancel').onclick = () => {
-      closeConfirm();
-      resolve(false);
-      document.getElementById('confirm-popup-cancel').onclick = origCancel;
-    };
+  if (!confirm('Delete this screenshot? This cannot be undone.')) return false;
+  await fetch(`${SERVER_URL}/api/screenshots/${id}`, {
+    method: 'DELETE',
+    headers: { 'x-api-key': API_KEY },
   });
+  selectedScreenshots.delete(id);
+  loadHistory();
+  return true;
 }
 
 async function toggleOneVisibility(id, hidden) {
@@ -828,27 +660,19 @@ async function toggleOneVisibility(id, hidden) {
     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
     body: JSON.stringify({ hidden }),
   });
-  logActivity(`${hidden ? 'hid' : 'unhid'}_screenshot_from_team`, document.getElementById('device-select').value);
   loadHistory();
 }
 
-// ---- Screenshot lightbox ----
+// ---- Screenshot lightbox (larger view, with Prev/Next and now Delete/Hide) ----
 const lightbox = document.getElementById('image-lightbox');
-let currentShots = [];
+let currentShots = []; // flat, newest-first - index is shared with the date-grouped view
 let lightboxIndex = -1;
-let historyColumns = Number(localStorage.getItem('historyColumns')) || 12;
+let historyColumns = Number(localStorage.getItem('historyColumns')) || 8;
 
 document.getElementById('lightbox-close').onclick = () => { lightbox.style.display = 'none'; };
 lightbox.onclick = (e) => { if (e.target === lightbox) lightbox.style.display = 'none'; };
 document.getElementById('lightbox-prev').onclick = () => stepLightbox(-1);
 document.getElementById('lightbox-next').onclick = () => stepLightbox(1);
-
-document.addEventListener('keydown', (e) => {
-  if (lightbox.style.display !== 'flex') return;
-  if (e.key === 'ArrowLeft')  { e.preventDefault(); stepLightbox(-1); }
-  if (e.key === 'ArrowRight') { e.preventDefault(); stepLightbox(1);  }
-  if (e.key === 'Escape')     { lightbox.style.display = 'none'; }
-});
 
 document.querySelectorAll('.col-btn').forEach((btn) => {
   if (Number(btn.dataset.cols) === historyColumns) btn.classList.add('active');
@@ -870,9 +694,7 @@ function openLightbox(index) {
 
 function stepLightbox(delta) {
   if (currentShots.length === 0) return;
-  const next = lightboxIndex + delta;
-  if (next < 0 || next >= currentShots.length) return;
-  lightboxIndex = next;
+  lightboxIndex = (lightboxIndex + delta + currentShots.length) % currentShots.length;
   renderLightbox();
 }
 
@@ -881,17 +703,15 @@ function renderLightbox() {
   if (!shot) return;
   document.getElementById('lightbox-img').src = shot.url;
   document.getElementById('lightbox-caption').textContent = new Date(shot.capturedAt).toLocaleString();
-  document.getElementById('lightbox-prev').disabled = lightboxIndex === 0;
-  document.getElementById('lightbox-next').disabled = lightboxIndex === currentShots.length - 1;
   const hideBtn = document.getElementById('lightbox-hide-btn');
   hideBtn.textContent = shot.hidden ? 'Show to Team' : 'Hide from Team';
   hideBtn.onclick = async () => {
     await toggleOneVisibility(shot.id, !shot.hidden);
-    shot.hidden = !shot.hidden;
+    shot.hidden = !shot.hidden; // keep the open lightbox in sync without a full reload
     hideBtn.textContent = shot.hidden ? 'Show to Team' : 'Hide from Team';
   };
   document.getElementById('lightbox-delete-btn').onclick = async () => {
-    const deleted = await deleteOneScreenshot(shot.id);
+    const deleted = await deleteOneScreenshot(shot.id); // confirms internally
     if (deleted) lightbox.style.display = 'none';
   };
 }
@@ -909,10 +729,13 @@ function dateGroupLabel(date) {
 async function loadHistory() {
   const deviceId = document.getElementById('device-select').value;
   if (!deviceId) return;
+  // limit=all - the whole point of this view is browsing everything by
+  // date, like a phone gallery, not a small recent-only page.
   const res = await fetch(`${SERVER_URL}/api/screenshots/${deviceId}?limit=all`, {
     headers: { 'x-api-key': API_KEY },
   });
   const shots = await res.json();
+
   currentShots = shots.map((s) => ({
     id: s.id,
     url: `${SERVER_URL}/api/screenshot-image/${s.id}?apiKey=${API_KEY}`,
@@ -921,12 +744,16 @@ async function loadHistory() {
   }));
 
   const gallery = document.getElementById('history-gallery');
+
   if (currentShots.length === 0) {
-    gallery.innerHTML = '<p style="color:#94a3b8;">No screenshots yet for this device.</p>';
+    gallery.innerHTML = '<p>No screenshots yet for this device.</p>';
     return;
   }
 
-  const groups = new Map();
+  // Group into date buckets while preserving each shot's index into the
+  // flat currentShots array, since the lightbox's Prev/Next walks that
+  // flat, newest-first list regardless of which date group it renders in.
+  const groups = new Map(); // label -> [{shot, flatIndex}]
   currentShots.forEach((shot, flatIndex) => {
     const label = dateGroupLabel(new Date(shot.capturedAt));
     if (!groups.has(label)) groups.set(label, []);
@@ -948,21 +775,13 @@ async function loadHistory() {
       </div>`)
     .join('');
 
-  if (selectMode) gallery.classList.add('select-mode');
-
   gallery.querySelectorAll('img[data-index]').forEach((img) => {
     img.onclick = (e) => {
       const id = img.dataset.id;
-      const thumb = img.closest('.thumb');
       if (e.ctrlKey || e.metaKey) {
-        enterSelectModeIfNeeded();
         if (selectedScreenshots.has(id)) selectedScreenshots.delete(id);
         else selectedScreenshots.add(id);
-        thumb.classList.toggle('selected', selectedScreenshots.has(id));
-        thumb.querySelector('.select-shot').checked = selectedScreenshots.has(id);
-      } else if (selectMode) {
-        if (selectedScreenshots.has(id)) selectedScreenshots.delete(id);
-        else selectedScreenshots.add(id);
+        const thumb = img.closest('.thumb');
         thumb.classList.toggle('selected', selectedScreenshots.has(id));
         thumb.querySelector('.select-shot').checked = selectedScreenshots.has(id);
       } else {
@@ -970,7 +789,6 @@ async function loadHistory() {
       }
     };
   });
-
   gallery.querySelectorAll('.select-shot').forEach((cb) => {
     cb.onchange = (e) => {
       if (e.target.checked) selectedScreenshots.add(cb.dataset.id);
