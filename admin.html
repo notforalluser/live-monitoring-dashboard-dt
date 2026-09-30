@@ -3,47 +3,51 @@
 <head>
 <meta charset="UTF-8" />
 <title>Super Admin Dashboard — Divine Talent</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 <link rel="stylesheet" href="admin-style.css" />
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
 <script src="https://unpkg.com/simple-peer@9/simplepeer.min.js"></script>
 </head>
 <body>
 
-  <!-- Password gate: basic deterrent only, not real server-side security -->
+  <!-- Password gate -->
   <div id="password-screen" class="password-screen">
     <div class="password-box">
-      <h2>Super Admin Login</h2>
+      <h2><i class="fas fa-shield-hal"></i> Super Admin Login</h2>
       <input id="password-input" type="password" placeholder="Password" autofocus />
-      <button id="password-submit">Unlock</button>
+      <button id="password-submit"><i class="fas fa-unlock-alt"></i> Unlock</button>
       <p id="password-error" class="error-text" style="display:none">Incorrect password.</p>
     </div>
   </div>
 
   <div id="app" style="display:none">
     <header>
-      <h1>Super Admin Dashboard</h1>
-      <div class="conn-status">
-        <span id="viewer-count" class="viewer-count-text"></span>
-        <span id="conn-dot" class="dot offline"></span>
-        <span id="conn-text">Connecting...</span>
+      <h1><i class="fas fa-crown"></i> Super Admin Dashboard</h1>
+      <div class="header-right">
+        <div class="conn-status">
+          <span id="viewer-count" class="viewer-count-text"></span>
+          <span id="conn-dot" class="dot offline"></span>
+          <span id="conn-text">Connecting...</span>
+        </div>
+        <button id="logout-btn" class="logout-btn" title="Log out"><i class="fas fa-sign-out-alt"></i> Logout</button>
       </div>
     </header>
 
     <nav id="tabs">
-      <button class="tab-btn active" data-tab="live">Live View</button>
-      <button class="tab-btn" data-tab="history">Screenshot History</button>
-      <button class="tab-btn" data-tab="activity">Activity Log</button>
+      <button class="tab-btn active" data-tab="live"><i class="fas fa-video"></i> Live View</button>
+      <button class="tab-btn" data-tab="history"><i class="fas fa-images"></i> Screenshot History</button>
+      <button class="tab-btn" data-tab="activity"><i class="fas fa-clipboard-list"></i> Activity Log</button>
     </nav>
 
     <main id="live-tab" class="tab-panel">
       <div class="live-controls">
-        <button id="show-all-btn" class="pill active">Show All</button>
+        <button id="show-all-btn" class="pill active"><i class="fas fa-layer-group"></i> Show All</button>
         <div id="device-checklist" class="checklist"></div>
         <div class="size-controls">
-          <span>Tile size:</span>
-          <button class="size-btn" data-size="260">S</button>
-          <button class="size-btn active" data-size="400">M</button>
-          <button class="size-btn" data-size="720" data-full="true">L (Fullscreen)</button>
+          <span><i class="fas fa-expand-arrows-alt"></i> Tile size:</span>
+          <button class="size-btn" data-size="260"><i class="fas fa-compress-alt"></i> S</button>
+          <button class="size-btn active" data-size="400"><i class="fas fa-expand"></i> M</button>
+          <button class="size-btn" data-size="720" data-full="true"><i class="fas fa-arrows-alt"></i> L (Fullscreen)</button>
         </div>
       </div>
       <div id="live-grid" class="grid"></div>
@@ -52,13 +56,14 @@
     <main id="history-tab" class="tab-panel" style="display:none">
       <div class="history-controls">
         <select id="device-select"></select>
-        <button id="refresh-history">Refresh</button>
-        <button id="delete-selected-btn" class="danger-btn">Delete Selected</button>
-        <button id="hide-selected-btn">Hide Selected from Team</button>
-        <button id="unhide-selected-btn">Show Selected to Team</button>
+        <button id="refresh-history"><i class="fas fa-sync-alt"></i> <span>Refresh</span></button>
+        <button id="select-mode-btn" class="secondary-btn"><i class="fas fa-check-square"></i> <span>Select</span></button>
+        <button id="delete-selected-btn" class="danger-btn"><i class="fas fa-trash-alt"></i> Delete Selected</button>
+        <button id="hide-selected-btn"><i class="fas fa-eye-slash"></i> Hide Selected</button>
+        <button id="unhide-selected-btn"><i class="fas fa-eye"></i> Show Selected</button>
       </div>
       <div class="column-controls">
-        <span>Columns:</span>
+        <span><i class="fas fa-columns"></i> Columns:</span>
         <button class="col-btn" data-cols="4">4</button>
         <button class="col-btn" data-cols="6">6</button>
         <button class="col-btn active" data-cols="8">8</button>
@@ -69,11 +74,25 @@
     </main>
 
     <main id="activity-tab" class="tab-panel" style="display:none">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <p style="color:#6b7280;font-size:13px;margin:0;">Team activity: device online/offline, team member online/offline, camera/mic access, and team-triggered toggles. Your own actions aren't logged here.</p>
-        <button id="clear-activity-btn" class="danger-btn">Clear Activity Log</button>
+      <div class="activity-header">
+        <div>
+          <h2 class="activity-title"><i class="fas fa-clipboard-list"></i> Team Activity Log</h2>
+          <p class="activity-subtitle">Team member actions, device online/offline events, and access changes. Your own admin actions aren't logged here.</p>
+        </div>
+        <div class="activity-actions">
+          <button id="refresh-activity-btn" class="secondary-btn"><i class="fas fa-sync-alt"></i> Refresh</button>
+          <button id="clear-activity-btn" class="danger-btn"><i class="fas fa-trash-alt"></i> Clear Log</button>
+        </div>
       </div>
-      <div id="activity-log-list"></div>
+
+      <div class="activity-filters">
+        <button class="filter-chip active" data-filter="all"><i class="fas fa-list"></i> All <span class="count" id="count-all">0</span></button>
+        <button class="filter-chip" data-filter="team"><i class="fas fa-users"></i> Team <span class="count" id="count-team">0</span></button>
+        <button class="filter-chip" data-filter="device"><i class="fas fa-desktop"></i> Device <span class="count" id="count-device">0</span></button>
+        <button class="filter-chip" data-filter="camera-mic"><i class="fas fa-video"></i> Camera/Mic <span class="count" id="count-camera-mic">0</span></button>
+      </div>
+
+      <div id="activity-log-list" class="activity-list"></div>
     </main>
   </div>
 
@@ -82,66 +101,81 @@
     <div class="focus-modal" id="focus-modal">
       <div class="focus-header">
         <span id="focus-label"></span>
-        <div>
-          <button id="focus-prev">&larr; Prev</button>
-          <button id="focus-next">Next &rarr;</button>
-          <button id="focus-fullscreen">Fullscreen</button>
-          <button id="focus-close">Close</button>
+        <div class="focus-header-actions">
+          <button id="focus-prev" title="Previous (←)"><i class="fas fa-chevron-left"></i> Prev</button>
+          <button id="focus-next" title="Next (→)">Next <i class="fas fa-chevron-right"></i></button>
+          <button id="focus-fullscreen" title="Fullscreen"><i class="fas fa-expand"></i> Fullscreen</button>
+          <button id="focus-close" class="close-btn" title="Close"><i class="fas fa-times"></i> Close</button>
         </div>
       </div>
-      <video id="focus-video" autoplay playsinline muted></video>
-      <div class="resize-hint">Drag bottom-right corner to resize</div>
+      <div class="focus-body">
+        <video id="focus-video" autoplay playsinline muted></video>
+      </div>
+      <div class="resize-hint">Use ← / → to slide. Press Esc to exit fullscreen.</div>
     </div>
   </div>
 
-  <!-- Larger view for a single stored screenshot -->
+  <!-- Screenshot lightbox with keyboard shortcuts -->
   <div id="image-lightbox" class="lightbox" style="display:none">
-    <button id="lightbox-close" class="lightbox-close">Close</button>
+    <button id="lightbox-close" class="lightbox-close close-btn" title="Close (Esc)"><i class="fas fa-times"></i> Close</button>
     <div class="lightbox-actions">
-      <button id="lightbox-hide-btn">Hide from Team</button>
-      <button id="lightbox-delete-btn" class="danger-btn">Delete</button>
+      <button id="lightbox-hide-btn" class="secondary-btn"><i class="fas fa-eye-slash"></i> <span>Hide from Team</span></button>
+      <button id="lightbox-delete-btn" class="danger-btn"><i class="fas fa-trash-alt"></i> Delete</button>
     </div>
-    <button id="lightbox-prev" class="lightbox-nav lightbox-prev">&larr;</button>
+    <button id="lightbox-prev" class="lightbox-nav lightbox-prev" title="Previous (←)"><i class="fas fa-chevron-left"></i></button>
     <img id="lightbox-img" />
-    <button id="lightbox-next" class="lightbox-nav lightbox-next">&rarr;</button>
+    <button id="lightbox-next" class="lightbox-nav lightbox-next" title="Next (→)"><i class="fas fa-chevron-right"></i></button>
     <div id="lightbox-caption" class="lightbox-caption"></div>
+    <div class="lightbox-shortcuts">
+      <span><kbd>←</kbd><kbd>→</kbd> Navigate</span>
+      <span><kbd>H</kbd> Hide</span>
+      <span><kbd>U</kbd> Unhide</span>
+      <span><kbd>Del</kbd> Delete</span>
+      <span><kbd>Esc</kbd> Close</span>
+    </div>
   </div>
 
-  <!-- Remote control modal: mouse clicks and keyboard are forwarded live -->
+  <!-- Remote control modal -->
   <div id="remote-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal">
+    <div class="focus-modal" id="remote-modal">
       <div class="focus-header">
         <span id="remote-label"></span>
-        <div>
-          <button id="remote-close">Close</button>
+        <div class="focus-header-actions">
+          <button id="remote-fullscreen" title="Fullscreen"><i class="fas fa-expand"></i> Fullscreen</button>
+          <button id="remote-close" class="close-btn" title="Close"><i class="fas fa-times"></i> Close</button>
         </div>
       </div>
-      <video id="remote-video" autoplay playsinline muted></video>
-      <div class="resize-hint">Click the video to click there. Type to send keystrokes to this laptop.</div>
+      <div class="focus-body">
+        <video id="remote-video" autoplay playsinline muted></video>
+      </div>
+      <div class="resize-hint">Click the video to click there. Type to send keystrokes. Press Esc to exit fullscreen.</div>
     </div>
   </div>
 
   <!-- Camera/mic viewing modal -->
   <div id="camera-overlay" class="focus-overlay" style="display:none">
-    <div class="focus-modal">
+    <div class="focus-modal" id="camera-modal">
       <div class="focus-header">
         <span id="camera-label"></span>
-        <div>
-          <button id="camera-close">Close</button>
+        <div class="focus-header-actions">
+          <button id="camera-fullscreen" title="Fullscreen"><i class="fas fa-expand"></i> Fullscreen</button>
+          <button id="camera-close" class="close-btn" title="Close"><i class="fas fa-times"></i> Close</button>
         </div>
       </div>
-      <video id="camera-video" autoplay playsinline></video>
-      <div class="resize-hint">This closes the camera/mic stream and clears the on-screen banner for the employee.</div>
+      <div class="focus-body">
+        <video id="camera-video" autoplay playsinline></video>
+      </div>
+      <div class="resize-hint" id="camera-hint">Press Esc to exit fullscreen.</div>
     </div>
   </div>
 
-  <!-- Confirmation popup before turning Live/Screenshot on or off -->
-  <div id="confirm-popup" class="password-screen" style="display:none; background: rgba(0,0,0,0.3);">
+  <!-- Confirmation popup -->
+  <div id="confirm-popup" class="password-screen" style="display:none; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);">
     <div class="password-box">
       <h2 id="confirm-popup-text">Are you sure?</h2>
       <div style="display:flex; gap:8px;">
-        <button id="confirm-popup-cancel" style="flex:1; background:#9ca3af;">Cancel</button>
-        <button id="confirm-popup-ok" style="flex:1;">OK</button>
+        <button id="confirm-popup-cancel" class="secondary-btn" style="flex:1;"><i class="fas fa-times"></i> Cancel</button>
+        <button id="confirm-popup-ok" class="danger-btn" style="flex:1;"><i class="fas fa-check"></i> Yes, Confirm</button>
       </div>
     </div>
   </div>
