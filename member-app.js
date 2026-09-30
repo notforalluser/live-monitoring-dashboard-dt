@@ -219,7 +219,7 @@ function renderLiveGrid() {
   );
 
   if (filtered.length === 0) {
-    grid.innerHTML = '<p>No one in this category right now.</p>';
+    grid.innerHTML = '<p>No employees in this category right now.</p>';
     return;
   }
 
@@ -274,9 +274,9 @@ function renderLiveGrid() {
     if (!v.live) {
       tile.innerHTML = `
         <div style="aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;background:#f4f6f9;color:#9ca3af;font-size:13px;">
-          Live monitoring not shared with you for this user
+          Live monitoring not shared with you for this employee
         </div>
-        <div class="tile-label"><span>${labelFor(deviceId)}</span></div>
+        <div class="tile-label"><span>${labelFor(deviceId)}</span><button class="rename-btn" type="button" style="padding:2px 8px;font-size:11px;">Rename</button></div>
         ${rows}`;
       grid.appendChild(tile);
       wireTileButtons(tile, deviceId);
@@ -285,7 +285,7 @@ function renderLiveGrid() {
 
     tile.innerHTML = `
       <video autoplay playsinline muted></video>
-      <div class="tile-label"><span><span class="dot online"></span>${labelFor(deviceId)}</span></div>
+      <div class="tile-label"><span><span class="dot online"></span>${labelFor(deviceId)}</span><button class="rename-btn" type="button" style="padding:2px 8px;font-size:11px;">Rename</button></div>
       ${rows}`;
     grid.appendChild(tile);
 
@@ -293,6 +293,19 @@ function renderLiveGrid() {
     watchDevice(deviceId, video);
     wireTileButtons(tile, deviceId);
   });
+}
+
+async function renameDevice(deviceId) {
+  const current = deviceMeta.get(deviceId)?.employee_name || '';
+  const name = prompt('Employee name for this device:', current);
+  if (name === null) return; // cancelled
+  await fetch(`${SERVER_URL}/api/devices/${deviceId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+    body: JSON.stringify({ employeeName: name }),
+  });
+  logActivity('renamed_device', deviceId);
+  await loadDeviceList();
 }
 
 function wireTileButtons(tile, deviceId) {
@@ -310,6 +323,8 @@ function wireTileButtons(tile, deviceId) {
   if (viewBtn) viewBtn.onclick = () => openCameraModal(deviceId);
   const remoteBtn = tile.querySelector('.start-remote-btn');
   if (remoteBtn) remoteBtn.onclick = () => openRemoteControlModal(deviceId);
+  const renameBtn = tile.querySelector('.rename-btn');
+  if (renameBtn) renameBtn.onclick = () => renameDevice(deviceId);
 }
 
 function watchDevice(deviceId, videoEl) {
@@ -451,7 +466,7 @@ function renderHistoryGroup() {
   const previousValue = select.value;
   select.innerHTML = filtered.map((id) => `<option value="${id}">${labelFor(id)}</option>`).join('');
   if (filtered.includes(previousValue)) select.value = previousValue;
-  if (filtered.length) loadHistory(); else gallery.innerHTML = '<p>No one with screenshot access shared yet.</p>';
+  if (filtered.length) loadHistory(); else gallery.innerHTML = '<p>No employees with screenshot access shared yet.</p>';
 }
 
 const lightbox = document.getElementById('image-lightbox');
